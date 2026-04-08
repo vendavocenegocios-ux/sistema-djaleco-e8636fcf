@@ -5,6 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { useSystemSettings } from "@/hooks/useSystemSettings";
+import { toast } from "sonner";
 import {
   Activity,
   Database,
@@ -19,6 +24,8 @@ import {
   Package,
   UserCog,
   Server,
+  Webhook,
+  Save,
 } from "lucide-react";
 
 interface TableCount {
@@ -32,6 +39,96 @@ interface HealthCheck {
   status: "ok" | "warn" | "error";
   detail: string;
   latencyMs?: number;
+}
+
+function WebhookConfig() {
+  const { settings, isLoading, updateMultiple } = useSystemSettings();
+  const [urlProd, setUrlProd] = useState(settings.webhook_producao || "");
+  const [urlTeste, setUrlTeste] = useState(settings.webhook_teste || "");
+  const [ativo, setAtivo] = useState(settings.webhook_ativo || "producao");
+  const [saving, setSaving] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized && settings.webhook_producao) {
+      setUrlProd(settings.webhook_producao);
+      setUrlTeste(settings.webhook_teste || "");
+      setAtivo(settings.webhook_ativo || "producao");
+      setInitialized(true);
+    }
+  }, [isLoading, settings, initialized]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateMultiple.mutateAsync([
+        { key: "webhook_producao", value: urlProd },
+        { key: "webhook_teste", value: urlTeste },
+        { key: "webhook_ativo", value: ativo },
+      ]);
+      toast.success("Configurações de webhook salvas!");
+    } catch {
+      toast.error("Erro ao salvar configurações");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+        <Webhook className="h-4 w-4" /> Webhook de disparo — Recuperação de Carrinho
+      </h2>
+      <Card>
+        <CardContent className="p-4 sm:p-6 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="webhook-prod">URL de Produção</Label>
+            <Input
+              id="webhook-prod"
+              type="url"
+              value={urlProd}
+              onChange={(e) => setUrlProd(e.target.value)}
+              placeholder="https://..."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="webhook-teste">URL de Teste</Label>
+            <Input
+              id="webhook-teste"
+              type="url"
+              value={urlTeste}
+              onChange={(e) => setUrlTeste(e.target.value)}
+              placeholder="https://..."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Ambiente Ativo</Label>
+            <RadioGroup value={ativo} onValueChange={setAtivo} className="flex gap-4">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="producao" id="env-prod" />
+                <Label htmlFor="env-prod" className="font-normal cursor-pointer">Produção</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="teste" id="env-teste" />
+                <Label htmlFor="env-teste" className="font-normal cursor-pointer">Teste</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? "Salvando..." : "Salvar Webhooks"}
+            </Button>
+            <Badge variant={ativo === "producao" ? "default" : "secondary"}>
+              {ativo === "producao" ? "🟢 Produção" : "🟡 Teste"}
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export default function Sistema() {
@@ -311,6 +408,9 @@ export default function Sistema() {
             </Card>
           </div>
         )}
+
+        {/* Webhook Config */}
+        <WebhookConfig />
 
         {/* App Info */}
         <Card>

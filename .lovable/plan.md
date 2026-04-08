@@ -1,53 +1,35 @@
 
 
-## Plano: Corrigir Loop Mobile, Dashboard Truncado e Aba Sistema
+## Plano: Configuração de Webhooks na página Sistema
 
-### 1. Corrigir Loop no Mobile e Botão Sair
+### Problema atual
+As URLs de webhook (produção e teste) estão hardcoded no código da página CarrinhosAbandonados e a seleção é salva via `localStorage`. Isso dificulta a gestão centralizada.
 
-**Causa raiz**: O hook `useAuthProvider` faz `await fetchRole()` dentro do callback `onAuthStateChange`. A documentação do Supabase alerta que não se deve fazer `await` de chamadas assíncronas dentro desse callback, pois isso bloqueia o processamento de eventos de autenticação subsequentes. Quando o `signOut` dispara, o callback tenta executar mas fica preso no `await` anterior, criando um deadlock/loop.
+### O que será feito
 
-**Solução** (`src/hooks/useAuth.ts`):
-- Usar `setTimeout` para desacoplar o `fetchRole` do callback do `onAuthStateChange` (não bloquear o callback)
-- Garantir que `getSession()` execute primeiro e só depois registrar o listener
-- Adicionar navegação para `/login` no `signOut` via `window.location`
+**1. Criar tabela `system_settings` no Supabase**
+- Tabela key-value para armazenar configurações do sistema (webhook_producao, webhook_teste, webhook_ativo)
+- RLS para authenticated users
 
-### 2. Dashboard Truncado
+**2. Adicionar seção "Webhooks" na página Sistema**
+- Dois campos editáveis: URL de Produção e URL de Teste (pré-populados com os valores atuais)
+- Seletor (radio/toggle) para escolher qual está ativo: Produção ou Teste
+- Botão "Salvar" que persiste no Supabase
+- Label claro: "Webhook de disparo — Recuperação de Carrinho"
 
-**Causa raiz**: O grid `grid-cols-2 lg:grid-cols-5` com 5 colunas em telas médias/grandes faz os cards ficarem muito estreitos, truncando valores monetários como "R$ 2.098,46".
+**3. Atualizar CarrinhosAbandonados**
+- Ao invés de ler do localStorage/hardcode, buscar a URL ativa da tabela `system_settings`
+- Remover o seletor de webhook inline (já que será gerido centralmente no Sistema)
+- Manter badge indicando qual ambiente está ativo
 
-**Solução** (`src/pages/Dashboard.tsx`):
-- Mudar grid para `grid-cols-2 md:grid-cols-3 xl:grid-cols-5` nos KPIs
-- Adicionar `break-all` ou `text-wrap` nos valores monetários
-- Reduzir o tamanho da fonte dos valores em telas menores
-- Garantir que os cards financeiros também se adaptem: `grid-cols-2 md:grid-cols-2 xl:grid-cols-4`
+### Valores padrão
+- Produção: `https://n8n.vendavocenegocios.com.br/webhook/recuperar-carrinho`
+- Teste: `https://n8n.vendavocenegocios.com.br/webhook-test/recuperar-carrinho`
 
-### 3. Aba "Sistema" (Admin Only)
-
-**Arquivos novos**: `src/pages/Sistema.tsx`
-
-**Arquivos modificados**:
-- `src/App.tsx` — adicionar rota `/sistema` protegida com `adminOnly`
-- `src/components/layout/AppSidebar.tsx` — adicionar item "Sistema" no menu, visível apenas para admin
-
-**Conteúdo da página Sistema**:
-- **Saúde Geral**: indicador verde/amarelo/vermelho baseado na conectividade com Supabase
-- **Banco de Dados**: contagem de tabelas, total de registros por tabela (pedidos, clientes, produtos, vendedores)
-- **Autenticação**: número de usuários registrados, último login
-- **Edge Functions**: listar as funções implantadas e status
-- **Armazenamento**: informações sobre buckets
-- **Latência**: medir tempo de resposta de uma query simples ao Supabase
-- **Versão do App**: exibir data do build ou versão
-- Cards com ícones e indicadores visuais de status (verde = ok, vermelho = problema)
-
-Dados obtidos via queries diretas ao Supabase (contagens das tabelas, ping de latência, verificação de sessão auth).
-
-### Resumo de Mudanças
-
-| Arquivo | Ação |
-|---------|------|
-| `src/hooks/useAuth.ts` | Corrigir race condition no onAuthStateChange, melhorar signOut |
-| `src/pages/Dashboard.tsx` | Ajustar grid responsivo para evitar truncamento |
-| `src/pages/Sistema.tsx` | Criar página de saúde do sistema (admin only) |
-| `src/App.tsx` | Adicionar rota `/sistema` |
-| `src/components/layout/AppSidebar.tsx` | Adicionar "Sistema" no menu admin |
+### Detalhes técnicos
+- Migration SQL: `CREATE TABLE system_settings (key text PRIMARY KEY, value text, updated_at timestamptz DEFAULT now())`
+- Seed com 3 registros: `webhook_producao`, `webhook_teste`, `webhook_ativo` (valor: "producao")
+- Hook `useSystemSettings` para ler/atualizar as configurações
+- Na página Sistema: nova seção com inputs + toggle + save
+- Na CarrinhosAbandonados: query `system_settings` para obter a URL correta
 

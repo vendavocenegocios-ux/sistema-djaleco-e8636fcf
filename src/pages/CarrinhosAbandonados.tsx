@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSystemSettings } from "@/hooks/useSystemSettings";
 
 interface AbandonedCheckout {
   id: number;
@@ -81,35 +82,18 @@ const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> =
   return res.json();
 };
 
-const WEBHOOK_OPTIONS = [
-  { label: "Produção", value: import.meta.env.VITE_N8N_WEBHOOK_URL || "" },
-  { label: "Teste", value: "https://n8n.vendavocenegocios.com.br/webhook-test/recuperar-carrinho" },
-];
-
 export default function CarrinhosAbandonados() {
   const [days, setDays] = useState("30");
   const [sendingCartId, setSendingCartId] = useState<number | null>(null);
   const [sentCarts, setSentCarts] = useState<Record<string, SentRecord>>(getSentCarts);
-  const savedWebhook = localStorage.getItem("webhook_url") || WEBHOOK_OPTIONS[0].value;
-  const savedCustom = localStorage.getItem("webhook_custom") || "";
-  const [webhookUrl, setWebhookUrl] = useState(savedWebhook);
-  const [customWebhook, setCustomWebhook] = useState(savedCustom);
-  const [activeWebhook, setActiveWebhook] = useState(savedWebhook === "__custom__" ? savedCustom : savedWebhook);
-  const isDirty = (webhookUrl === "__custom__" ? customWebhook : webhookUrl) !== activeWebhook;
   const isMobile = useIsMobile();
-
-  const handleSaveWebhook = () => {
-    const url = webhookUrl === "__custom__" ? customWebhook : webhookUrl;
-    if (!url) { toast.error("Informe uma URL válida"); return; }
-    setActiveWebhook(url);
-    localStorage.setItem("webhook_url", webhookUrl);
-    localStorage.setItem("webhook_custom", customWebhook);
-    toast.success("Webhook salvo!");
-  };
+  const { settings, isLoading: settingsLoading, getActiveWebhookUrl } = useSystemSettings();
+  const activeWebhook = getActiveWebhookUrl();
+  const webhookEnv = settings.webhook_ativo || "producao";
 
   const handleSendWebhook = useCallback(async (c: AbandonedCheckout) => {
     if (!activeWebhook) {
-      toast.error("Salve um webhook antes de enviar");
+      toast.error("Configure o webhook na aba Sistema antes de enviar");
       return;
     }
     setSendingCartId(c.id);

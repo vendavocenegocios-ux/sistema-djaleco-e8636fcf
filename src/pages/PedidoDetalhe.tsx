@@ -161,13 +161,20 @@ export default function PedidoDetalhe() {
                 </div>
               </dl>
 
-              {/* Observações */}
-              {pedido.observacoes_pedido && (
-                <div className="mt-4 p-3 bg-muted/50 rounded-md">
-                  <p className="text-xs text-muted-foreground mb-1">Observações</p>
-                  <p className="text-sm">{pedido.observacoes_pedido}</p>
-                </div>
-              )}
+              {/* Observações do cliente */}
+              <div className="mt-4 p-3 bg-muted/50 rounded-md space-y-2">
+                <p className="text-xs text-muted-foreground font-medium">Observações do Cliente</p>
+                <Textarea
+                  value={obsLocal}
+                  onChange={(e) => setObsLocal(e.target.value)}
+                  rows={3}
+                  placeholder="Observações do cliente (preenchido na Nuvemshop)..."
+                  className="bg-background"
+                />
+                <Button size="sm" onClick={handleSaveObs} disabled={updatePedido.isPending}>
+                  Salvar Observações
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

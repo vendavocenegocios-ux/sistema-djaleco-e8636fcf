@@ -31,7 +31,21 @@ export default function PedidoDetalhe() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [trackingLoading, setTrackingLoading] = useState(false);
+  const [obsLocal, setObsLocal] = useState(pedido?.observacoes_pedido || "");
 
+  useEffect(() => {
+    if (pedido?.observacoes_pedido !== undefined) {
+      setObsLocal(pedido.observacoes_pedido || "");
+    }
+  }, [pedido?.observacoes_pedido]);
+
+  const handleSaveObs = () => {
+    if (!id) return;
+    updatePedido.mutate(
+      { id, observacoes_pedido: obsLocal },
+      { onSuccess: () => toast.success("Observações salvas!") }
+    );
+  };
   const vendedor = vendedores?.find((v) => v.id === pedido?.vendedor_id);
 
   const handleVendedorChange = (vendedorId: string) => {

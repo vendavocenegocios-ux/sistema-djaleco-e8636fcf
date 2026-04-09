@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Truck, PackageCheck, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -30,7 +31,21 @@ export default function PedidoDetalhe() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [trackingLoading, setTrackingLoading] = useState(false);
+  const [obsLocal, setObsLocal] = useState(pedido?.observacoes_pedido || "");
 
+  useEffect(() => {
+    if (pedido?.observacoes_pedido !== undefined) {
+      setObsLocal(pedido.observacoes_pedido || "");
+    }
+  }, [pedido?.observacoes_pedido]);
+
+  const handleSaveObs = () => {
+    if (!id) return;
+    updatePedido.mutate(
+      { id, observacoes_pedido: obsLocal },
+      { onSuccess: () => toast.success("Observações salvas!") }
+    );
+  };
   const vendedor = vendedores?.find((v) => v.id === pedido?.vendedor_id);
 
   const handleVendedorChange = (vendedorId: string) => {
@@ -146,13 +161,20 @@ export default function PedidoDetalhe() {
                 </div>
               </dl>
 
-              {/* Observações */}
-              {pedido.observacoes_pedido && (
-                <div className="mt-4 p-3 bg-muted/50 rounded-md">
-                  <p className="text-xs text-muted-foreground mb-1">Observações</p>
-                  <p className="text-sm">{pedido.observacoes_pedido}</p>
-                </div>
-              )}
+              {/* Observações do cliente */}
+              <div className="mt-4 p-3 bg-muted/50 rounded-md space-y-2">
+                <p className="text-xs text-muted-foreground font-medium">Observações do Cliente</p>
+                <Textarea
+                  value={obsLocal}
+                  onChange={(e) => setObsLocal(e.target.value)}
+                  rows={3}
+                  placeholder="Observações do cliente (preenchido na Nuvemshop)..."
+                  className="bg-background"
+                />
+                <Button size="sm" onClick={handleSaveObs} disabled={updatePedido.isPending}>
+                  Salvar Observações
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

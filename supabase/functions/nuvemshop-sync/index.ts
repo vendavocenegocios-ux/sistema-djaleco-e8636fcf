@@ -216,6 +216,10 @@ Deno.serve(async (req) => {
         if (rastreioCodigo) {
           updateData.rastreio_codigo = rastreioCodigo;
         }
+        // Sync customer note from Nuvemshop
+        if (order.note) {
+          updateData.observacoes_pedido = order.note;
+        }
 
         toUpdate.push({ id: existing.id, data: updateData });
       } else {
@@ -249,6 +253,7 @@ Deno.serve(async (req) => {
           comissao,
           status_pagamento: statusPagamento,
           etapa_producao: "Comercial",
+          observacoes_pedido: order.note || null,
         };
 
         toInsert.push({ ...pedidoData, _orderIdx: i });

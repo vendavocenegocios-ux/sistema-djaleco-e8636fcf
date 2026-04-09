@@ -11,7 +11,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { Search, Plus, RefreshCw, Copy, Truck, Package } from "lucide-react";
+import { Search, Plus, RefreshCw, Copy, Truck, Package, MessageSquare } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Pedido } from "@/hooks/usePedidos";
@@ -223,6 +224,11 @@ export default function Pedidos() {
         <span className="text-sm font-semibold">{formatCurrency(Number(p.valor_bruto))}</span>
         <span className="text-xs text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</span>
       </div>
+      {p.observacoes_pedido && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 truncate">
+          <MessageSquare className="inline h-3 w-3 mr-1" />{p.observacoes_pedido}
+        </p>
+      )}
       {p.rastreio_codigo && (
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Package className="h-3.5 w-3.5 text-green-600" />
@@ -256,6 +262,7 @@ export default function Pedidos() {
                 <TableHead>Etapa</TableHead>
                 <TableHead>Origem</TableHead>
                 <TableHead>Valor Bruto</TableHead>
+                <TableHead>Obs</TableHead>
                 <TableHead>Rastreio</TableHead>
                 <TableHead className="w-10"></TableHead>
               </TableRow>
@@ -289,6 +296,22 @@ export default function Pedidos() {
                     </TableCell>
                     <TableCell><Badge variant="outline">{p.origem}</Badge></TableCell>
                     <TableCell>{formatCurrency(Number(p.valor_bruto))}</TableCell>
+                    <TableCell>
+                      {p.observacoes_pedido ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <MessageSquare className="h-4 w-4 text-amber-500" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <p className="text-sm">{p.observacoes_pedido}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {p.rastreio_codigo ? (
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">

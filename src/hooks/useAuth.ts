@@ -33,13 +33,17 @@ export function useAuthProvider(): AuthContextType {
 
   const fetchRole = useCallback(async (userId: string) => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle();
+      if (error) {
+        console.warn("[useAuth] fetchRole error:", error.message);
+      }
       setRole((data?.role as AppRole) ?? "user");
-    } catch {
+    } catch (e) {
+      console.warn("[useAuth] fetchRole exception:", e);
       setRole("user");
     }
   }, []);
@@ -47,25 +51,19 @@ export function useAuthProvider(): AuthContextType {
   useEffect(() => {
     let mounted = true;
 
-    // Get initial session first
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!mounted) return;
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      if (currentUser) {
-        await fetchRole(currentUser.id);
-      }
-      setLoading(false);
-    });
+    // Safety net: never let the spinner spin forever
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 5000);
 
-    // Then listen for changes — do NOT await inside callback
+    // Listen FIRST so we don't miss events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!mounted) return;
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (currentUser) {
-          // Defer async work outside the callback to avoid blocking
+          // Defer async work outside the callback to avoid deadlocks
           setTimeout(() => {
             if (mounted) fetchRole(currentUser.id);
           }, 0);
@@ -76,8 +74,29 @@ export function useAuthProvider(): AuthContextType {
       }
     );
 
+    // Then get initial session
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (!mounted) return;
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+        if (currentUser) {
+          // Fire and forget — don't block loading on this
+          fetchRole(currentUser.id).finally(() => {
+            if (mounted) setLoading(false);
+          });
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch((e) => {
+        console.error("[useAuth] getSession failed:", e);
+        if (mounted) setLoading(false);
+      });
+
     return () => {
       mounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
   }, [fetchRole]);

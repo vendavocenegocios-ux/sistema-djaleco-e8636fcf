@@ -25,7 +25,6 @@ Deno.serve(async (req) => {
     const results = [];
 
     for (const u of users) {
-      // Check if user already exists
       const { data: existing } = await supabase.auth.admin.listUsers();
       const existingUser = existing?.users?.find((eu: any) => eu.email === u.email);
 
@@ -33,7 +32,16 @@ Deno.serve(async (req) => {
 
       if (existingUser) {
         userId = existingUser.id;
-        results.push({ email: u.email, status: "already_exists", userId });
+        // Force password reset + confirm email
+        const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+          password: u.password,
+          email_confirm: true,
+        });
+        if (updateError) {
+          results.push({ email: u.email, status: "update_error", error: updateError.message });
+          continue;
+        }
+        results.push({ email: u.email, status: "password_reset", userId });
       } else {
         const { data, error } = await supabase.auth.admin.createUser({
           email: u.email,
@@ -43,14 +51,13 @@ Deno.serve(async (req) => {
         });
 
         if (error) {
-          results.push({ email: u.email, status: "error", error: error.message });
+          results.push({ email: u.email, status: "create_error", error: error.message });
           continue;
         }
         userId = data.user.id;
         results.push({ email: u.email, status: "created", userId });
       }
 
-      // Upsert role
       const { error: roleError } = await supabase
         .from("user_roles")
         .upsert({ user_id: userId, role: u.role }, { onConflict: "user_id,role" });

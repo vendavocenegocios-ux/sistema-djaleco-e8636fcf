@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
     // Fetch pedidos to update
     let query = supabase
       .from("pedidos")
-      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme, taxa_ted, ted_confirmado")
+      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme, taxa_ted, ted_confirmado, comissao, comissao_paga")
       .gt("valor_bruto", 0)
       .not("nuvemshop_order_id", "is", null);
 
@@ -201,17 +201,33 @@ Deno.serve(async (req) => {
       const frete = Number(pedido.frete);
       const valorLiquido = valorBruto - frete - taxaPagarme - taxaTed;
 
-      let comissao = 0;
-      if (pedido.vendedor_id && vendedorRates[pedido.vendedor_id]) {
-        const rates = vendedorRates[pedido.vendedor_id];
-        const taxaComissao = pedido.origem === "whatsapp" ? rates.whatsapp : rates.site;
-        const base = valorBruto - taxaPagarme - taxaTed - frete;
-        comissao = base > 0 ? base * (taxaComissao / 100) : 0;
+      // CRITICAL: Freeze commission once it has been paid.
+      // Recalculating would retroactively change the paid amount.
+      let comissao = Number(pedido.comissao);
+      if (!pedido.comissao_paga) {
+        comissao = 0;
+        if (pedido.vendedor_id && vendedorRates[pedido.vendedor_id]) {
+          const rates = vendedorRates[pedido.vendedor_id];
+          const taxaComissao = pedido.origem === "whatsapp" ? rates.whatsapp : rates.site;
+          const base = valorBruto - taxaPagarme - taxaTed - frete;
+          comissao = base > 0 ? base * (taxaComissao / 100) : 0;
+        }
+      }
+
+      const updatePayload: any = {
+        taxa_pagarme: taxaPagarme,
+        taxa_ted: taxaTed,
+        ted_confirmado: tedConfirmado,
+        valor_liquido: valorLiquido,
+      };
+      // Only write commission if not paid yet (preserve historical paid amount)
+      if (!pedido.comissao_paga) {
+        updatePayload.comissao = comissao;
       }
 
       const { error } = await supabase
         .from("pedidos")
-        .update({ taxa_pagarme: taxaPagarme, taxa_ted: taxaTed, ted_confirmado: tedConfirmado, valor_liquido: valorLiquido, comissao })
+        .update(updatePayload)
         .eq("id", pedido.id);
 
       if (!error) {

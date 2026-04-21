@@ -127,11 +127,29 @@ Deno.serve(async (req) => {
     };
 
     const { data: existing } = await supabase
-      .from("pedidos").select("id").eq("nuvemshop_order_id", order.id).maybeSingle();
+      .from("pedidos")
+      .select("id, comissao_paga, comissao, taxa_pagarme, taxa_ted, valor_liquido")
+      .eq("nuvemshop_order_id", order.id)
+      .maybeSingle();
 
     let pedidoId: string;
     if (existing) {
-      const { data, error } = await supabase.from("pedidos").update(pedidoData).eq("id", existing.id).select("id").single();
+      // PRESERVE financial fields on update — they are managed by pagarme-fees-sync
+      // and (for commissions) frozen once paid.
+      const updateData: any = {
+        numero_pedido: pedidoData.numero_pedido,
+        cliente_nome: pedidoData.cliente_nome,
+        cliente_telefone: pedidoData.cliente_telefone,
+        cidade: pedidoData.cidade,
+        estado: pedidoData.estado,
+        data_pedido: pedidoData.data_pedido,
+        valor_bruto: pedidoData.valor_bruto,
+        frete: pedidoData.frete,
+        rastreio_codigo: pedidoData.rastreio_codigo,
+        etapa_producao: pedidoData.etapa_producao,
+      };
+      // Never overwrite paid commission. Otherwise also skip — pagarme-fees-sync owns it.
+      const { data, error } = await supabase.from("pedidos").update(updateData).eq("id", existing.id).select("id").single();
       if (error) throw error;
       pedidoId = data.id;
     } else {

@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
     // Fetch pedidos to update
     let query = supabase
       .from("pedidos")
-      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme, taxa_ted, ted_confirmado")
+      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme, taxa_ted, ted_confirmado, comissao, comissao_paga")
       .gt("valor_bruto", 0)
       .not("nuvemshop_order_id", "is", null);
 

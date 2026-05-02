@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Check, Loader2, CalendarIcon, Pencil, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 function formatCurrency(v: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -46,13 +47,11 @@ function usePagarmeExtrato(params: { year?: string; month?: string; start_date?:
       if (params.month) query.set("month", params.month);
       if (params.start_date) query.set("start_date", params.start_date);
       if (params.end_date) query.set("end_date", params.end_date);
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/pagarme-extrato?${query.toString()}`,
-        { headers: { "Content-Type": "application/json" } }
-      );
-      if (!res.ok) throw new Error("Falha ao carregar extrato Pagar.me");
-      return res.json() as Promise<{ charges: PagarmeCharge[]; summary: { total_bruto: number; total_liquido: number; total_taxas: number; count: number } }>;
+      const { data, error } = await supabase.functions.invoke(`pagarme-extrato?${query.toString()}`, {
+        method: "GET",
+      });
+      if (error) throw new Error("Falha ao carregar extrato Pagar.me");
+      return data as { charges: PagarmeCharge[]; summary: { total_bruto: number; total_liquido: number; total_taxas: number; count: number } };
     },
     enabled: !!(params.year || params.start_date),
   });

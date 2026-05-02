@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingBag, Factory, Package, Users, DollarSign, MoreHorizontal, ShoppingCart } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Factory, Package, Users, DollarSign, MoreHorizontal, ShoppingCart, BarChart3 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -18,6 +18,7 @@ const moreItems = [
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart },
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
+  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
   { title: "Vendedores", url: "/vendedores", icon: UserCog, adminOnly: true },
   { title: "Sistema", url: "/sistema", icon: Settings, adminOnly: true },
 ];

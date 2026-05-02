@@ -182,13 +182,15 @@ export default function Financeiro() {
   const totalComissoes = filteredPedidos.filter(p => p.status_pagamento !== "pendente").reduce((s, p) => s + Number(p.comissao), 0);
 
   const revenueByMonth: Record<string, number> = {};
+  const ordersByMonth: Record<string, number> = {};
   filteredPedidos.forEach((p) => {
     const key = format(new Date(p.data_pedido), "yyyy-MM");
     revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
+    ordersByMonth[key] = (ordersByMonth[key] || 0) + 1;
   });
   const chartData = Object.entries(revenueByMonth)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
+    .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor, pedidos: ordersByMonth[month] || 0 }));
 
   // All pedidos with comissao (exclude unpaid/pending), filtered by period
   const comissoesTodas = useMemo(() => {
@@ -389,7 +391,22 @@ export default function Financeiro() {
               </div>
             </Card>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+              <Card>
+                <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
+                  <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">Qtd. Pedidos</CardTitle>
+                </CardHeader>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <div className="text-base sm:text-xl font-bold">{filteredPedidos.length}</div>
+                  {(() => {
+                    const pagos = filteredPedidos.filter(p => p.status_pagamento === "recebido").length;
+                    const pendentes = filteredPedidos.filter(p => p.status_pagamento === "pendente").length;
+                    return pendentes > 0 ? (
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">{pagos} pagos · {pendentes} pendentes</p>
+                    ) : null;
+                  })()}
+                </CardContent>
+              </Card>
               {[
                 { label: "Fat. Bruto", value: totalBruto },
                 { label: "Fat. Líquido", value: totalLiquido },
@@ -416,7 +433,12 @@ export default function Financeiro() {
                   <BarChart data={chartData}>
                     <XAxis dataKey="name" fontSize={10} />
                     <YAxis fontSize={10} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                    <Tooltip
+                      formatter={(v: number, name: string) => {
+                        if (name === "pedidos") return [v, "Pedidos"];
+                        return [formatCurrency(v), "Faturamento"];
+                      }}
+                    />
                     <Bar dataKey="valor" fill="hsl(350, 45%, 65%)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>

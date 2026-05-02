@@ -20,9 +20,3 @@ verify_jwt = false
 
 [functions.nuvemshop-abandoned]
 verify_jwt = false
-
-[functions.setup-users]
-verify_jwt = false
-
-[functions.reset-password]
-verify_jwt = false

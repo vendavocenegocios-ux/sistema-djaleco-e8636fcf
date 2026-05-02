@@ -174,15 +174,18 @@ export default function Financeiro() {
     return filtered;
   }, [allPedidos, visaoFilterType, visaoYear, visaoMonth, visaoStartDate, visaoEndDate, visaoVendedor, visaoOrigem]);
 
-  const totalBruto = filteredPedidos.reduce((s, p) => s + Number(p.valor_bruto), 0);
-  const totalLiquido = filteredPedidos.reduce((s, p) => s + Number(p.valor_liquido), 0);
-  const totalFrete = filteredPedidos.reduce((s, p) => s + Number(p.frete), 0);
-  const totalTaxas = filteredPedidos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
-  const totalComissoes = filteredPedidos.filter(p => p.status_pagamento !== "pendente").reduce((s, p) => s + Number(p.comissao), 0);
+  // Only paid orders for financial metrics
+  const paidPedidos = useMemo(() => filteredPedidos.filter(p => p.status_pagamento !== "pendente"), [filteredPedidos]);
+
+  const totalBruto = paidPedidos.reduce((s, p) => s + Number(p.valor_bruto), 0);
+  const totalLiquido = paidPedidos.reduce((s, p) => s + Number(p.valor_liquido), 0);
+  const totalFrete = paidPedidos.reduce((s, p) => s + Number(p.frete), 0);
+  const totalTaxas = paidPedidos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+  const totalComissoes = paidPedidos.reduce((s, p) => s + Number(p.comissao), 0);
 
   const revenueByMonth: Record<string, number> = {};
   const ordersByMonth: Record<string, number> = {};
-  filteredPedidos.forEach((p) => {
+  paidPedidos.forEach((p) => {
     const key = format(new Date(p.data_pedido), "yyyy-MM");
     revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
     ordersByMonth[key] = (ordersByMonth[key] || 0) + 1;
@@ -396,14 +399,8 @@ export default function Financeiro() {
                   <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">Qtd. Pedidos</CardTitle>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                  <div className="text-base sm:text-xl font-bold">{filteredPedidos.length}</div>
-                  {(() => {
-                    const pagos = filteredPedidos.filter(p => p.status_pagamento === "recebido").length;
-                    const pendentes = filteredPedidos.filter(p => p.status_pagamento === "pendente").length;
-                    return pendentes > 0 ? (
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">{pagos} pagos · {pendentes} pendentes</p>
-                    ) : null;
-                  })()}
+                  <div className="text-base sm:text-xl font-bold">{paidPedidos.length}</div>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">pedidos pagos</p>
                 </CardContent>
               </Card>
               {[

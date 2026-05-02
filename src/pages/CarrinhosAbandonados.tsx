@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
+import { supabase } from "@/integrations/supabase/client";
 
 interface AbandonedCheckout {
   id: number;
@@ -61,25 +62,11 @@ const markCartAsSent = (cartId: number): void => {
 };
 
 const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> => {
-  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  const res = await fetch(
-    `https://${projectId}.supabase.co/functions/v1/nuvemshop-abandoned?days=${days}`,
-    {
-      headers: {
-        Authorization: `Bearer ${anonKey}`,
-        apikey: anonKey,
-      },
-    }
-  );
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Erro desconhecido" }));
-    throw new Error(err.error || "Erro ao buscar carrinhos abandonados");
-  }
-
-  return res.json();
+  const { data, error } = await supabase.functions.invoke(`nuvemshop-abandoned?days=${days}`, {
+    method: "GET",
+  });
+  if (error) throw new Error(error.message || "Erro ao buscar carrinhos abandonados");
+  return data?.checkouts || data || [];
 };
 
 export default function CarrinhosAbandonados() {

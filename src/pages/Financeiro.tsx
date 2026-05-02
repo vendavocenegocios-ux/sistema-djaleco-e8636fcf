@@ -186,13 +186,18 @@ export default function Financeiro() {
   const revenueByMonth: Record<string, number> = {};
   const ordersByMonth: Record<string, number> = {};
   paidPedidos.forEach((p) => {
-    const key = format(new Date(p.data_pedido), "yyyy-MM");
+    const d = new Date(p.data_pedido);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
     ordersByMonth[key] = (ordersByMonth[key] || 0) + 1;
   });
   const chartData = Object.entries(revenueByMonth)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor, pedidos: ordersByMonth[month] || 0 }));
+    .map(([month, valor]) => {
+      const [y, m] = month.split("-").map(Number);
+      const label = format(new Date(y, m - 1, 15), "MMM/yy", { locale: ptBR });
+      return { name: label, valor, pedidos: ordersByMonth[month] || 0 };
+    });
 
   // All pedidos with comissao (exclude unpaid/pending), filtered by period
   const comissoesTodas = useMemo(() => {

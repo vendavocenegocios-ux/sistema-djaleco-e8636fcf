@@ -9,6 +9,7 @@ import {
   LogOut,
   Settings,
   ShoppingCart,
+  BarChart3,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -40,6 +41,7 @@ const mainItems = [
 
 const financeItems = [
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
+  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
   { title: "Vendedores", url: "/vendedores", icon: UserCog, adminOnly: true },
   { title: "Sistema", url: "/sistema", icon: Settings, adminOnly: true },
 ];

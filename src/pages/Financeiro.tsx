@@ -13,13 +13,34 @@ import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useState, useMemo } from "react";
-import { format, subMonths, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { Check, Loader2, CalendarIcon, Pencil, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+
+// Helper: extract local year/month from date string without timezone shift
+function getLocalYearMonth(dateStr: string): { year: number; month: number } {
+  // If ISO date "YYYY-MM-DD..." extract directly from string
+  const match = dateStr?.match(/^(\d{4})-(\d{2})/);
+  if (match) {
+    return { year: parseInt(match[1]), month: parseInt(match[2]) };
+  }
+  // Fallback: use Date with noon to avoid timezone shift
+  const d = new Date(dateStr);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+function getLocalDate(dateStr: string): Date {
+  // Parse "YYYY-MM-DD" as local date (noon to avoid shift)
+  const match = dateStr?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]), 12);
+  }
+  return new Date(dateStr);
+}
 
 function formatCurrency(v: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -139,25 +160,26 @@ export default function Financeiro() {
     if (visaoFilterType === "mes") {
       // Filter by year
       filtered = filtered.filter(p => {
-        const d = new Date(p.data_pedido);
-        return d.getFullYear().toString() === visaoYear;
+        const { year } = getLocalYearMonth(p.data_pedido);
+        return year.toString() === visaoYear;
       });
       // Filter by month if not "all"
       if (visaoMonth !== "all") {
         filtered = filtered.filter(p => {
-          const d = new Date(p.data_pedido);
-          return (d.getMonth() + 1).toString() === visaoMonth;
+          const { month } = getLocalYearMonth(p.data_pedido);
+          return month.toString() === visaoMonth;
         });
       }
     } else {
       // Custom date range
       if (visaoStartDate) {
-        const start = new Date(visaoStartDate);
-        filtered = filtered.filter(p => new Date(p.data_pedido) >= start);
+        const start = getLocalDate(visaoStartDate);
+        filtered = filtered.filter(p => getLocalDate(p.data_pedido) >= start);
       }
       if (visaoEndDate) {
-        const end = new Date(visaoEndDate + "T23:59:59");
-        filtered = filtered.filter(p => new Date(p.data_pedido) <= end);
+        const end = getLocalDate(visaoEndDate);
+        end.setHours(23, 59, 59);
+        filtered = filtered.filter(p => getLocalDate(p.data_pedido) <= end);
       }
     }
 
@@ -186,8 +208,8 @@ export default function Financeiro() {
   const revenueByMonth: Record<string, number> = {};
   const ordersByMonth: Record<string, number> = {};
   paidPedidos.forEach((p) => {
-    const d = new Date(p.data_pedido);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const { year, month } = getLocalYearMonth(p.data_pedido);
+    const key = `${year}-${String(month).padStart(2, "0")}`;
     revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
     ordersByMonth[key] = (ordersByMonth[key] || 0) + 1;
   });
@@ -204,13 +226,17 @@ export default function Financeiro() {
     let filtered = allPedidos.filter((p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente");
 
     if (comFilterType === "mes") {
-      filtered = filtered.filter(p => new Date(p.data_pedido).getFullYear().toString() === comYear);
+      filtered = filtered.filter(p => getLocalYearMonth(p.data_pedido).year.toString() === comYear);
       if (comMonth !== "all") {
-        filtered = filtered.filter(p => (new Date(p.data_pedido).getMonth() + 1).toString() === comMonth);
+        filtered = filtered.filter(p => getLocalYearMonth(p.data_pedido).month.toString() === comMonth);
       }
     } else {
-      if (comStartDate) filtered = filtered.filter(p => new Date(p.data_pedido) >= new Date(comStartDate));
-      if (comEndDate) filtered = filtered.filter(p => new Date(p.data_pedido) <= new Date(comEndDate + "T23:59:59"));
+      if (comStartDate) filtered = filtered.filter(p => getLocalDate(p.data_pedido) >= getLocalDate(comStartDate));
+      if (comEndDate) {
+        const end = getLocalDate(comEndDate);
+        end.setHours(23, 59, 59);
+        filtered = filtered.filter(p => getLocalDate(p.data_pedido) <= end);
+      }
     }
 
     if (comVendedor !== "all") {

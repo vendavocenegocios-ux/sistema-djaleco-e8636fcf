@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -81,9 +81,9 @@ export default function CarrinhosAbandonados() {
   });
 
   // Sync DB data to state
-  useState(() => {
+  useEffect(() => {
     if (sentCartsData) setSentCarts(sentCartsData);
-  });
+  }, [sentCartsData]);
 
   const handleSendWebhook = useCallback(async (c: AbandonedCheckout) => {
     if (!activeWebhook) {

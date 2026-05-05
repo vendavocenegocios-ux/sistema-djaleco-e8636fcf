@@ -85,6 +85,8 @@ export default function CarrinhosAbandonados() {
     }
     setSendingCartId(c.id);
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       const res = await fetch(activeWebhook, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -96,13 +98,22 @@ export default function CarrinhosAbandonados() {
           recovery_url: c.recovery_url || "",
           products: c.products,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`Erro ${res.status}`);
       markCartAsSent(c.id);
       setSentCarts(getSentCarts());
       toast.success("Mensagem enviada com sucesso!");
     } catch (err) {
-      toast.error(`Falha ao enviar: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
+      const msg = err instanceof Error
+        ? err.name === "AbortError"
+          ? "Timeout: webhook não respondeu em 10s"
+          : err.message === "Failed to fetch"
+            ? "Webhook indisponível. Verifique a URL em Sistema."
+            : err.message
+        : "Erro desconhecido";
+      toast.error(`Falha ao enviar: ${msg}`);
     } finally {
       setSendingCartId(null);
     }

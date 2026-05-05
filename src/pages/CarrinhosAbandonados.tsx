@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -45,22 +45,6 @@ interface SentRecord {
   sentAt: string;
 }
 
-const SENT_CARTS_KEY = "sent_carts";
-
-const getSentCarts = (): Record<string, SentRecord> => {
-  try {
-    return JSON.parse(localStorage.getItem(SENT_CARTS_KEY) || "{}");
-  } catch {
-    return {};
-  }
-};
-
-const markCartAsSent = (cartId: number): void => {
-  const sent = getSentCarts();
-  sent[String(cartId)] = { sentAt: new Date().toISOString() };
-  localStorage.setItem(SENT_CARTS_KEY, JSON.stringify(sent));
-};
-
 const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> => {
   const { data, error } = await supabase.functions.invoke(`nuvemshop-abandoned?days=${days}`, {
     method: "GET",
@@ -72,11 +56,34 @@ const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> =
 export default function CarrinhosAbandonados() {
   const [days, setDays] = useState("30");
   const [sendingCartId, setSendingCartId] = useState<number | null>(null);
-  const [sentCarts, setSentCarts] = useState<Record<string, SentRecord>>(getSentCarts);
+  const [sentCarts, setSentCarts] = useState<Record<string, SentRecord>>({});
   const isMobile = useIsMobile();
   const { settings, isLoading: settingsLoading, getActiveWebhookUrl } = useSystemSettings();
   const activeWebhook = getActiveWebhookUrl();
   const webhookEnv = settings.webhook_ativo || "producao";
+
+  // Load sent carts from database
+  const { data: sentCartsData } = useQuery({
+    queryKey: ["sent-carts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cart_recovery_conversations")
+        .select("cart_id, created_at")
+        .eq("status", "enviado");
+      if (error) throw error;
+      const map: Record<string, SentRecord> = {};
+      data?.forEach((r) => {
+        map[r.cart_id] = { sentAt: r.created_at || new Date().toISOString() };
+      });
+      return map;
+    },
+    staleTime: 30_000,
+  });
+
+  // Sync DB data to state
+  useEffect(() => {
+    if (sentCartsData) setSentCarts(sentCartsData);
+  }, [sentCartsData]);
 
   const handleSendWebhook = useCallback(async (c: AbandonedCheckout) => {
     if (!activeWebhook) {
@@ -102,8 +109,28 @@ export default function CarrinhosAbandonados() {
       });
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`Erro ${res.status}`);
-      markCartAsSent(c.id);
-      setSentCarts(getSentCarts());
+      // Save to database
+      const { error: dbError } = await supabase
+        .from("cart_recovery_conversations")
+        .upsert(
+          {
+            cart_id: String(c.id),
+            phone: c.customer.phone?.replace(/\D/g, "") || "",
+            customer_name: c.customer.name,
+            status: "enviado",
+            cart_data: {
+              total: c.total,
+              recovery_url: c.recovery_url,
+              products: c.products,
+            },
+          },
+          { onConflict: "cart_id" }
+        );
+      if (dbError) console.error("Erro ao salvar envio:", dbError);
+      setSentCarts((prev) => ({
+        ...prev,
+        [String(c.id)]: { sentAt: new Date().toISOString() },
+      }));
       toast.success("Mensagem enviada com sucesso!");
     } catch (err) {
       const msg = err instanceof Error

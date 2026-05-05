@@ -3,24 +3,26 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { lazy, Suspense } from "react";
 import { AuthContext, useAuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { PWAUpdateDialog } from "@/components/PWAUpdateDialog";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Pedidos from "./pages/Pedidos";
-import PedidoDetalhe from "./pages/PedidoDetalhe";
-import NovoPedido from "./pages/NovoPedido";
-import Producao from "./pages/Producao";
-import Produtos from "./pages/Produtos";
-import Clientes from "./pages/Clientes";
-import ClienteDetalhe from "./pages/ClienteDetalhe";
-import Financeiro from "./pages/Financeiro";
-import Vendedores from "./pages/Vendedores";
-import Sistema from "./pages/Sistema";
-import CarrinhosAbandonados from "./pages/CarrinhosAbandonados";
-import Relatorios from "./pages/Relatorios";
-import NotFound from "./pages/NotFound";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Pedidos = lazy(() => import("./pages/Pedidos"));
+const PedidoDetalhe = lazy(() => import("./pages/PedidoDetalhe"));
+const NovoPedido = lazy(() => import("./pages/NovoPedido"));
+const Producao = lazy(() => import("./pages/Producao"));
+const Produtos = lazy(() => import("./pages/Produtos"));
+const Clientes = lazy(() => import("./pages/Clientes"));
+const ClienteDetalhe = lazy(() => import("./pages/ClienteDetalhe"));
+const Financeiro = lazy(() => import("./pages/Financeiro"));
+const Vendedores = lazy(() => import("./pages/Vendedores"));
+const Sistema = lazy(() => import("./pages/Sistema"));
+const CarrinhosAbandonados = lazy(() => import("./pages/CarrinhosAbandonados"));
+const Relatorios = lazy(() => import("./pages/Relatorios"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -29,6 +31,7 @@ function AppRoutes() {
 
   return (
     <AuthContext.Provider value={auth}>
+      <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -46,6 +49,7 @@ function AppRoutes() {
         <Route path="/sistema" element={<ProtectedRoute adminOnly><Sistema /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
     </AuthContext.Provider>
   );
 }

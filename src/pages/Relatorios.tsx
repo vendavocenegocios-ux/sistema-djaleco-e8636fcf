@@ -43,7 +43,13 @@ export default function Relatorios() {
 
     return pedidos.filter((p) => {
       if (p.status_pagamento === "pendente") return false;
-      if (cutoff && new Date(p.data_pedido) < cutoff) return false;
+      if (cutoff) {
+        const match = p.data_pedido?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const d = match
+          ? new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]), 12)
+          : new Date(p.data_pedido);
+        if (d < cutoff) return false;
+      }
       return true;
     });
   }, [pedidos, period]);

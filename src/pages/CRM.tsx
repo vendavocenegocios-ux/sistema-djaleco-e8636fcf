@@ -1,12 +1,21 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -22,15 +31,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Phone, Mail, MessageSquare } from "lucide-react";
+import { Plus, Search, MessageSquare, Users } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 
 const STATUS_OPTIONS = [
-  { value: "novo", label: "Novo" },
-  { value: "em_atendimento", label: "Em atendimento" },
-  { value: "qualificado", label: "Qualificado" },
-  { value: "ganho", label: "Ganho" },
-  { value: "perdido", label: "Perdido" },
+  { value: "lead", label: "Lead" },
+  { value: "negociando", label: "Negociando" },
+  { value: "cliente", label: "Cliente" },
+  { value: "inativo", label: "Inativo" },
 ];
 
 const ORIGEM_LABEL: Record<string, string> = {
@@ -41,24 +51,40 @@ const ORIGEM_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  novo: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  em_atendimento: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  qualificado: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-  ganho: "bg-green-500/10 text-green-500 border-green-500/20",
-  perdido: "bg-red-500/10 text-red-500 border-red-500/20",
+  lead: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  negociando: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+  cliente: "bg-green-500/10 text-green-600 border-green-500/20",
+  inativo: "bg-muted text-muted-foreground border-border",
 };
+
+const ORIGEM_COLORS: Record<string, string> = {
+  whatsapp: "bg-emerald-700/10 text-emerald-700 border-emerald-700/20",
+  site: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+  indicacao: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+  outro: "bg-muted text-muted-foreground border-border",
+};
+
+const STATUS_TABS = [
+  { value: "todos", label: "Todos" },
+  { value: "lead", label: "Lead" },
+  { value: "negociando", label: "Negociando" },
+  { value: "cliente", label: "Cliente" },
+  { value: "inativo", label: "Inativo" },
+];
 
 export default function CRM() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("todos");
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     nome: "",
     telefone: "",
     email: "",
     origem: "whatsapp",
-    status: "novo",
+    status: "lead",
     tags: "",
   });
 
@@ -93,17 +119,19 @@ export default function CRM() {
       qc.invalidateQueries({ queryKey: ["crm_contacts"] });
       toast.success("Contato criado com sucesso");
       setOpen(false);
-      setForm({ nome: "", telefone: "", email: "", origem: "whatsapp", status: "novo", tags: "" });
+      setForm({ nome: "", telefone: "", email: "", origem: "whatsapp", status: "lead", tags: "" });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar contato"),
   });
 
-  const filtered = contatos?.filter(
-    (c) =>
+  const filtered = contatos?.filter((c) => {
+    const matchesSearch =
       c.nome.toLowerCase().includes(search.toLowerCase()) ||
       c.telefone?.includes(search) ||
-      c.email?.toLowerCase().includes(search.toLowerCase())
-  );
+      c.email?.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = statusFilter === "todos" || c.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,64 +168,95 @@ export default function CRM() {
           />
         </div>
 
-        {/* List */}
-        <div className="grid gap-3">
-          {isLoading ? (
-            <div className="h-32 rounded-lg bg-muted animate-pulse" />
-          ) : filtered?.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center text-muted-foreground">
-                Nenhum contato encontrado
-              </CardContent>
-            </Card>
-          ) : (
-            filtered?.map((c) => (
-              <Link key={c.id} to={`/crm/${c.id}`}>
-                <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
-                  <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0">
-                        {c.nome
-                          .split(" ")
-                          .map((p) => p[0])
-                          .slice(0, 2)
-                          .join("")
-                          .toUpperCase() || "?"}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold truncate">{c.nome}</h3>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-0.5 text-sm text-muted-foreground">
-                          <span className="inline-flex items-center gap-1">
-                            <Phone className="h-3 w-3" />
-                            {c.telefone}
-                          </span>
-                          {c.email && (
-                            <span className="inline-flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              {c.email}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
-                      <Badge
-                        variant="outline"
-                        className={STATUS_COLORS[c.status ?? "novo"]}
-                      >
-                        {STATUS_OPTIONS.find((s) => s.value === c.status)?.label ??
-                          "Novo"}
-                      </Badge>
-                      <Badge variant="secondary">
-                        {ORIGEM_LABEL[c.origem ?? "whatsapp"] ?? c.origem}
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))
-          )}
-        </div>
+        {/* Status Tabs */}
+        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+          <TabsList>
+            {STATUS_TABS.map((t) => (
+              <TabsTrigger key={t.value} value={t.value}>
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {/* Table */}
+        {isLoading ? (
+          <div className="h-32 rounded-lg bg-muted animate-pulse" />
+        ) : !filtered || filtered.length === 0 ? (
+          <Card>
+            <CardContent className="py-16 flex flex-col items-center justify-center gap-4 text-center">
+              <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                <Users className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-muted-foreground">Nenhum contato ainda</p>
+              <Button onClick={() => setOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Adicionar contato
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Telefone</TableHead>
+                  <TableHead>Origem</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Último Contato</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((c) => {
+                  const last = c.updated_at ?? c.created_at;
+                  return (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.nome}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {c.telefone}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={ORIGEM_COLORS[c.origem ?? "outro"] ?? ORIGEM_COLORS.outro}
+                        >
+                          {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem ?? "Outro"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={STATUS_COLORS[c.status ?? "lead"] ?? STATUS_COLORS.lead}
+                        >
+                          {STATUS_OPTIONS.find((s) => s.value === c.status)?.label ?? c.status ?? "Lead"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {last
+                          ? formatDistanceToNow(new Date(last), {
+                              addSuffix: true,
+                              locale: ptBR,
+                            })
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/crm/${c.id}`)}
+                        >
+                          Ver
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Card>
+        )}
       </div>
 
       {/* Dialog Novo Contato */}

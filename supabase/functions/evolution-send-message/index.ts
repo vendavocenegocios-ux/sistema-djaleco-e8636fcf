@@ -6,7 +6,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { telefone, mensagem } = await req.json();
+    const { telefone, mensagem, contact_id } = await req.json();
 
     if (!telefone || !mensagem) {
       return new Response(
@@ -19,11 +19,20 @@ Deno.serve(async (req) => {
     const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
     const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
 
-    const response = await fetch(`${evolutionUrl}/message/sendText/${instance}`, {
+    if (!evolutionUrl || !instance || !apiKey) {
+      return new Response(
+        JSON.stringify({ error: "Variáveis de ambiente não configuradas" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const url = `${evolutionUrl}/message/sendText/${instance}`;
+
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: apiKey!,
+        "apikey": apiKey,
       },
       body: JSON.stringify({
         number: String(telefone).replace(/\D/g, ""),
@@ -33,7 +42,7 @@ Deno.serve(async (req) => {
 
     const result = await response.json();
 
-    return new Response(JSON.stringify({ success: response.ok, result }), {
+    return new Response(JSON.stringify({ success: response.ok, result, contact_id }), {
       status: response.ok ? 200 : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

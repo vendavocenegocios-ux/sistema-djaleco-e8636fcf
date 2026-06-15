@@ -100,7 +100,7 @@ export default function CRMContato() {
   }, [contato?.id]);
 
   const updateContact = useMutation({
-    mutationFn: async (patch: Record<string, any>) => {
+    mutationFn: async (patch: Partial<{ nome: string; status: string; notas: string }>) => {
       const { error } = await supabase
         .from("crm_contacts")
         .update(patch)

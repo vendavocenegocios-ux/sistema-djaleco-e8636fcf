@@ -70,6 +70,7 @@ const initialsOf = (name: string | null | undefined, fallback: string) =>
 
 export default function CRMContato() {
   const { id } = useParams<{ id: string }>();
+  const contactId = id ? String(id) : undefined;
   const qc = useQueryClient();
 
   const [notas, setNotas] = useState("");
@@ -78,20 +79,21 @@ export default function CRMContato() {
   const [pedidosOpen, setPedidosOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { data: contato, isLoading } = useQuery({
-    queryKey: ["crm_contact", id],
+    queryKey: ["crm_contact", contactId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_contacts")
         .select("*")
-        .eq("id", id!)
+        .eq("id", contactId!)
         .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!id,
+    enabled: !!contactId,
   });
 
   useEffect(() => {
@@ -104,18 +106,18 @@ export default function CRMContato() {
       const { error } = await supabase
         .from("crm_contacts")
         .update(patch)
-        .eq("id", id!);
+        .eq("id", contactId!);
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_contact", id] });
+      qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar"),
   });
 
   const tel = onlyDigits(contato?.telefone);
   const { data: pedidos } = useQuery({
-    queryKey: ["crm_contact_pedidos", id, tel],
+    queryKey: ["crm_contact_pedidos", contactId, tel],
     enabled: !!contato && !!tel,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -130,58 +132,91 @@ export default function CRMContato() {
     },
   });
 
-  const { data: mensagens } = useQuery({
-    queryKey: ["crm_messages", id],
-    enabled: !!id,
-    queryFn: async () => {
+  // Initial fetch of messages
+  useEffect(() => {
+    if (!contactId) return;
+    console.log("CRMContato contactId:", contactId);
+    const fetchMessages = async () => {
       const { data, error } = await supabase
         .from("crm_messages")
         .select("*")
-        .eq("contact_id", id!)
+        .eq("contact_id", contactId)
         .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+      if (error) {
+        console.error("Erro ao buscar mensagens:", error);
+        return;
+      }
+      setMessages(data ?? []);
+    };
+    fetchMessages();
+  }, [contactId]);
 
-  // Realtime subscription
+  // Realtime subscription for new messages
   useEffect(() => {
-    if (!id) return;
+    if (!contactId) return;
     const channel = supabase
-      .channel(`crm_messages_${id}`)
+      .channel("crm-messages-" + contactId)
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "INSERT",
           schema: "public",
           table: "crm_messages",
-          filter: `contact_id=eq.${id}`,
+          filter: `contact_id=eq.${contactId}`,
         },
-        () => {
-          qc.invalidateQueries({ queryKey: ["crm_messages", id] });
+        (payload) => {
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === payload.new.id);
+            if (exists) return prev;
+            // Replace optimistic temp message if present
+            const optimisticIndex = prev.findIndex(
+              (m) =>
+                m.id?.toString().startsWith("temp-") &&
+                m.conteudo === payload.new.conteudo &&
+                m.direcao === payload.new.direcao,
+            );
+            if (optimisticIndex !== -1) {
+              const next = [...prev];
+              next[optimisticIndex] = payload.new as any;
+              return next;
+            }
+            return [...prev, payload.new as any];
+          });
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, qc]);
+  }, [contactId]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [mensagens?.length]);
+  }, [messages.length]);
 
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || !contato || sending) return;
     setSending(true);
+
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg = {
+      id: tempId,
+      contact_id: contato.id,
+      conteudo: text,
+      direcao: "enviada",
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setDraft("");
+
     try {
       const { error: fnError } = await supabase.functions.invoke(
         "evolution-send-message",
-        { body: { telefone: contato.telefone, mensagem: text } },
+        { body: { telefone: contato.telefone, mensagem: text, contact_id: contato.id } },
       );
       if (fnError) throw fnError;
 
@@ -191,9 +226,6 @@ export default function CRMContato() {
         direcao: "enviada",
       });
       if (insertError) throw insertError;
-
-      setDraft("");
-      qc.invalidateQueries({ queryKey: ["crm_messages", id] });
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao enviar mensagem");
     } finally {
@@ -410,12 +442,12 @@ export default function CRMContato() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3"
         >
-          {!mensagens || mensagens.length === 0 ? (
+          {messages.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-10">
               Nenhuma mensagem ainda.
             </p>
           ) : (
-            mensagens.map((m) => {
+            messages.map((m) => {
               const enviada = m.direcao === "enviada";
               return (
                 <div

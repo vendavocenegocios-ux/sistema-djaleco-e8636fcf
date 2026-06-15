@@ -41,8 +41,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black px-4">
-      <Card className="w-full max-w-sm bg-black border-neutral-800">
+    <div className="min-h-screen flex items-center justify-center bg-neutral-800 px-4">
+      <Card className="w-full max-w-sm bg-neutral-900 border-neutral-700">
         <CardHeader className="text-center space-y-4">
           <img src={djalecoLogo} alt="D.Jaleco Sistema de Gestão" className="h-48 w-auto mx-auto object-contain" />
           <CardTitle className="text-xl text-white">Entrar no sistema</CardTitle>
@@ -91,7 +91,7 @@ export default function Login() {
           )}
 
           {showManualInstall && !isInstalled && (
-            <div className="rounded-lg border border-primary/40 bg-black p-3 text-sm space-y-2">
+            <div className="rounded-lg border border-primary/40 bg-neutral-900 p-3 text-sm space-y-2">
               <p className="font-medium text-white">📱 Instale o app no celular</p>
               {isIOSDevice ? (
                 <p className="flex items-center gap-1 flex-wrap text-primary">

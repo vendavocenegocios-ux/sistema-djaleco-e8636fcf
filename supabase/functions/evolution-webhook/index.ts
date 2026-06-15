@@ -20,6 +20,8 @@ serve(async (req) => {
 
     const body = await req.json();
 
+    console.log("[webhook] event:", body.event, "fromMe:", body.data?.key?.fromMe);
+
     if (body.event !== "MESSAGES_UPSERT" && body.event !== "messages.upsert") {
       return new Response("ok", { status: 200, headers: corsHeaders });
     }
@@ -40,6 +42,8 @@ serve(async (req) => {
     const nomeWhats = body.data?.pushName || msgData?.pushName || "";
     const fromMe = body.data?.key?.fromMe || msgData?.key?.fromMe || false;
 
+    console.log("[webhook] telefone:", telefone, "conteudo:", conteudo, "fromMe:", fromMe);
+
     if (!telefone || fromMe) {
       return new Response("ok", { status: 200, headers: corsHeaders });
     }
@@ -49,6 +53,8 @@ serve(async (req) => {
       .select("id, status")
       .eq("telefone", telefone)
       .maybeSingle();
+
+    console.log("[webhook] contato encontrado:", contato?.id ?? "nenhum");
 
     if (!contato) {
       const { data: novo } = await supabase
@@ -64,12 +70,18 @@ serve(async (req) => {
       contato = novo;
     }
 
-    await supabase.from("crm_messages").insert({
+    const { error: insertError } = await supabase.from("crm_messages").insert({
       contact_id: contato!.id,
       conteudo,
       direcao: "recebida",
       canal: "whatsapp",
     });
+
+    if (insertError) {
+      console.error("[webhook] insert error:", insertError);
+    } else {
+      console.log("[webhook] mensagem gravada para contact_id:", contato!.id);
+    }
 
     await supabase
       .from("crm_contacts")

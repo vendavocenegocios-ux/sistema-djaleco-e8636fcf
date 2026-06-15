@@ -87,7 +87,17 @@ serve(async (req) => {
       .update({ ultimo_contato: new Date().toISOString() })
       .eq("id", contato!.id);
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({
+      success: true,
+      debug: {
+        event: body.event,
+        telefone,
+        conteudo,
+        fromMe,
+        contact_id: contato?.id,
+        insertError: insertError?.message ?? null,
+      },
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

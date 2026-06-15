@@ -1,27 +1,19 @@
-import { AppLayout } from "@/components/layout/AppLayout";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
@@ -31,16 +23,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, MessageSquare, Users } from "lucide-react";
+import { Plus, MessageSquare, Phone } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 
-const STATUS_OPTIONS = [
-  { value: "lead", label: "Lead" },
-  { value: "negociando", label: "Negociando" },
-  { value: "cliente", label: "Cliente" },
-  { value: "inativo", label: "Inativo" },
+type ColumnKey = "novo" | "em_atendimento" | "aguardando" | "resolvido";
+
+const COLUMNS: {
+  key: ColumnKey;
+  label: string;
+  dot: string;
+  ring: string;
+}[] = [
+  { key: "novo", label: "Novo", dot: "bg-blue-500", ring: "border-blue-500/30" },
+  { key: "em_atendimento", label: "Em Atendimento", dot: "bg-yellow-500", ring: "border-yellow-500/30" },
+  { key: "aguardando", label: "Aguardando", dot: "bg-purple-500", ring: "border-purple-500/30" },
+  { key: "resolvido", label: "Resolvido", dot: "bg-green-500", ring: "border-green-500/30" },
 ];
 
 const ORIGEM_LABEL: Record<string, string> = {
@@ -50,265 +49,126 @@ const ORIGEM_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  lead: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  negociando: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  cliente: "bg-green-500/10 text-green-600 border-green-500/20",
-  inativo: "bg-muted text-muted-foreground border-border",
-};
-
-const ORIGEM_COLORS: Record<string, string> = {
-  whatsapp: "bg-emerald-700/10 text-emerald-700 border-emerald-700/20",
-  site: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-  indicacao: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+const ORIGEM_CLASS: Record<string, string> = {
+  whatsapp: "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30",
+  site: "bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/30",
+  indicacao: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30",
   outro: "bg-muted text-muted-foreground border-border",
 };
 
-const STATUS_TABS = [
-  { value: "todos", label: "Todos" },
-  { value: "lead", label: "Lead" },
-  { value: "negociando", label: "Negociando" },
-  { value: "cliente", label: "Cliente" },
-  { value: "inativo", label: "Inativo" },
-];
+const truncate = (s: string | null | undefined, n = 60) =>
+  !s ? "" : s.length > n ? s.slice(0, n).trimEnd() + "…" : s;
 
 export default function CRM() {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("todos");
-  const [open, setOpen] = useState(false);
-  const qc = useQueryClient();
   const navigate = useNavigate();
-
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     nome: "",
     telefone: "",
     email: "",
     origem: "whatsapp",
-    status: "lead",
+    status: "novo" as ColumnKey,
     tags: "",
   });
 
   const { data: contatos, isLoading } = useQuery({
-    queryKey: ["crm_contacts"],
+    queryKey: ["crm_contacts_kanban"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_contacts")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("updated_at", { ascending: false });
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
   });
 
-  const createContact = useMutation({
-    mutationFn: async (values: typeof form) => {
-      const payload = {
-        nome: values.nome,
-        telefone: values.telefone,
-        email: values.email || null,
-        origem: values.origem,
-        status: values.status,
-        tags: values.tags
-          ? values.tags.split(",").map((t) => t.trim()).filter(Boolean)
-          : [],
-      };
-      const { error } = await supabase.from("crm_contacts").insert(payload);
+  const { data: lastMessages } = useQuery({
+    queryKey: ["crm_last_messages"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_messages")
+        .select("contact_id, conteudo, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const map = new Map<string, { conteudo: string; created_at: string }>();
+      (data ?? []).forEach((m) => {
+        if (!map.has(m.contact_id)) {
+          map.set(m.contact_id, { conteudo: m.conteudo, created_at: m.created_at });
+        }
+      });
+      return map;
+    },
+  });
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const tags = form.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const { error } = await supabase.from("crm_contacts").insert({
+        nome: form.nome.trim(),
+        telefone: form.telefone.trim(),
+        email: form.email.trim() || null,
+        origem: form.origem,
+        status: form.status,
+        tags,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_contacts"] });
-      toast.success("Contato criado com sucesso");
+      toast.success("Contato criado");
+      qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
       setOpen(false);
-      setForm({ nome: "", telefone: "", email: "", origem: "whatsapp", status: "lead", tags: "" });
+      setForm({ nome: "", telefone: "", email: "", origem: "whatsapp", status: "novo", tags: "" });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar contato"),
   });
 
-  const filtered = contatos?.filter((c) => {
-    const matchesSearch =
-      c.nome.toLowerCase().includes(search.toLowerCase()) ||
-      c.telefone?.includes(search) ||
-      c.email?.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "todos" || c.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.nome.trim() || !form.telefone.trim()) {
-      toast.error("Nome e telefone são obrigatórios");
-      return;
-    }
-    createContact.mutate(form);
-  };
+  const grouped = COLUMNS.reduce<Record<ColumnKey, typeof contatos>>((acc, col) => {
+    acc[col.key] = (contatos ?? []).filter((c) => (c.status ?? "novo") === col.key);
+    return acc;
+  }, { novo: [], em_atendimento: [], aguardando: [], resolvido: [] } as any);
 
   return (
-    <AppLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <MessageSquare className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold text-foreground">CRM / WhatsApp</h1>
-          </div>
-          <Button onClick={() => setOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Contato
-          </Button>
+    <div className="p-4 md:p-6 space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <h1 className="text-2xl font-bold">CRM / WhatsApp</h1>
         </div>
-
-        {/* Search */}
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nome, telefone ou email..."
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        {/* Status Tabs */}
-        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
-          <TabsList>
-            {STATUS_TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
-                {t.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
-        {/* Table */}
-        {isLoading ? (
-          <div className="h-32 rounded-lg bg-muted animate-pulse" />
-        ) : !filtered || filtered.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 flex flex-col items-center justify-center gap-4 text-center">
-              <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                <Users className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p className="text-muted-foreground">Nenhum contato ainda</p>
-              <Button onClick={() => setOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Adicionar contato
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Telefone</TableHead>
-                  <TableHead>Origem</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Último Contato</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((c) => {
-                  const last = c.updated_at ?? c.created_at;
-                  return (
-                    <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.nome}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {c.telefone}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={ORIGEM_COLORS[c.origem ?? "outro"] ?? ORIGEM_COLORS.outro}
-                        >
-                          {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem ?? "Outro"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={STATUS_COLORS[c.status ?? "lead"] ?? STATUS_COLORS.lead}
-                        >
-                          {STATUS_OPTIONS.find((s) => s.value === c.status)?.label ?? c.status ?? "Lead"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {last
-                          ? formatDistanceToNow(new Date(last), {
-                              addSuffix: true,
-                              locale: ptBR,
-                            })
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => navigate(`/crm/${c.id}`)}
-                        >
-                          Ver
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </Card>
-        )}
-      </div>
-
-      {/* Dialog Novo Contato */}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={handleSubmit}>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-1" /> Novo Contato
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
             <DialogHeader>
               <DialogTitle>Novo Contato</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="nome">Nome *</Label>
-                <Input
-                  id="nome"
-                  value={form.nome}
-                  onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))}
-                  placeholder="Nome do contato"
-                  required
-                />
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="nome">Nome</Label>
+                <Input id="nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="telefone">Telefone *</Label>
-                <Input
-                  id="telefone"
-                  value={form.telefone}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, telefone: e.target.value }))
-                  }
-                  placeholder="(11) 99999-9999"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="telefone">Telefone</Label>
+                  <Input id="telefone" value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="email@exemplo.com"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
                   <Label>Origem</Label>
-                  <Select
-                    value={form.origem}
-                    onValueChange={(v) => setForm((f) => ({ ...f, origem: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Select value={form.origem} onValueChange={(v) => setForm({ ...form, origem: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="whatsapp">WhatsApp</SelectItem>
                       <SelectItem value="site">Site</SelectItem>
@@ -317,50 +177,89 @@ export default function CRM() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label>Status</Label>
-                  <Select
-                    value={form.status}
-                    onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as ColumnKey })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {STATUS_OPTIONS.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
-                        </SelectItem>
+                      {COLUMNS.map((c) => (
+                        <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="tags">Tags (separadas por vírgula)</Label>
-                <Input
-                  id="tags"
-                  value={form.tags}
-                  onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
-                  placeholder="vip, recorrente, etc"
-                />
+                <Textarea id="tags" rows={2} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
               </div>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={createContact.isPending}>
-                {createContact.isPending ? "Criando..." : "Criar Contato"}
+              <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+              <Button onClick={() => create.mutate()} disabled={!form.nome.trim() || !form.telefone.trim() || create.isPending}>
+                {create.isPending ? "Criando..." : "Criar"}
               </Button>
             </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </AppLayout>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {COLUMNS.map((col) => {
+          const items = grouped[col.key] ?? [];
+          return (
+            <div key={col.key} className={`rounded-lg border bg-muted/30 p-3 flex flex-col min-h-[200px] ${col.ring}`}>
+              <div className="flex items-center justify-between mb-3 px-1">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
+                  <h2 className="font-semibold text-sm">{col.label}</h2>
+                </div>
+                <Badge variant="secondary" className="text-xs">{items.length}</Badge>
+              </div>
+              <div className="space-y-2 flex-1">
+                {isLoading ? (
+                  <div className="h-20 rounded-md bg-muted animate-pulse" />
+                ) : items.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-6">Nenhum contato</p>
+                ) : (
+                  items.map((c) => {
+                    const last = lastMessages?.get(c.id);
+                    const lastDate = last?.created_at ?? c.updated_at ?? c.created_at;
+                    return (
+                      <Card
+                        key={c.id}
+                        onClick={() => navigate(`/crm/${c.id}`)}
+                        className="p-3 cursor-pointer hover:shadow-md hover:border-primary/40 transition-all space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-medium text-sm truncate">{c.nome}</span>
+                          <Badge variant="outline" className={`text-[10px] shrink-0 ${ORIGEM_CLASS[c.origem ?? "outro"] ?? ORIGEM_CLASS.outro}`}>
+                            {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Phone className="h-3 w-3" />
+                          <span className="truncate">{c.telefone}</span>
+                        </div>
+                        {last?.conteudo && (
+                          <p className="text-xs text-foreground/80 line-clamp-2 leading-snug">
+                            {truncate(last.conteudo, 60)}
+                          </p>
+                        )}
+                        <div className="text-[11px] text-muted-foreground">
+                          {lastDate
+                            ? formatDistanceToNow(new Date(lastDate), { addSuffix: true, locale: ptBR })
+                            : "—"}
+                        </div>
+                      </Card>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

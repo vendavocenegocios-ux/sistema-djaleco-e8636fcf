@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.nuvemshop-abandoned]
 verify_jwt = false
+
+[functions.evolution-webhook]
+verify_jwt = false

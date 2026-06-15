@@ -1,0 +1,1 @@
+ALTER TABLE public.crm_contacts ALTER COLUMN status SET DEFAULT 'novo';

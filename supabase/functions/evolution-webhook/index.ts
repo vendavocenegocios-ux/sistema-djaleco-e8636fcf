@@ -74,7 +74,6 @@ serve(async (req) => {
       contact_id: contato!.id,
       conteudo,
       direcao: "recebida",
-      canal: "whatsapp",
     });
 
     if (insertError) {

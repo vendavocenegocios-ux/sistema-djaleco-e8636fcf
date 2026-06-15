@@ -20,19 +20,27 @@ serve(async (req) => {
 
     const body = await req.json();
 
-    if (body.event !== "messages.upsert") {
+    if (body.event !== "MESSAGES_UPSERT" && body.event !== "messages.upsert") {
       return new Response("ok", { status: 200, headers: corsHeaders });
     }
 
-    const msg = body.data;
-    const telefone = msg.key?.remoteJid?.replace("@s.whatsapp.net", "");
-    const conteudo =
-      msg.message?.conversation ||
-      msg.message?.extendedTextMessage?.text ||
-      "[mídia]";
-    const nomeWhats = msg.pushName || "";
+    // Suporta ambos os formatos v1 e v2 da Evolution API
+    const msgData = body.data?.message || body.data;
+    const telefone = (body.data?.key?.remoteJid || msgData?.key?.remoteJid || "")
+      .replace("@s.whatsapp.net", "")
+      .replace("@c.us", "");
 
-    if (!telefone || msg.key?.fromMe) {
+    const conteudo =
+      body.data?.message?.conversation ||
+      body.data?.message?.extendedTextMessage?.text ||
+      msgData?.message?.conversation ||
+      msgData?.message?.extendedTextMessage?.text ||
+      "[mídia]";
+
+    const nomeWhats = body.data?.pushName || msgData?.pushName || "";
+    const fromMe = body.data?.key?.fromMe || msgData?.key?.fromMe || false;
+
+    if (!telefone || fromMe) {
       return new Response("ok", { status: 200, headers: corsHeaders });
     }
 

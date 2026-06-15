@@ -158,6 +158,38 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_messages: {
+        Row: {
+          contact_id: string
+          conteudo: string
+          created_at: string
+          direcao: string
+          id: string
+        }
+        Insert: {
+          contact_id: string
+          conteudo: string
+          created_at?: string
+          direcao?: string
+          id?: string
+        }
+        Update: {
+          contact_id?: string
+          conteudo?: string
+          created_at?: string
+          direcao?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_messages_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "crm_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pedido_itens: {
         Row: {
           cor: string | null

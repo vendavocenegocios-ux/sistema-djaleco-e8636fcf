@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -11,15 +13,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Mail, Phone, Tag } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Tag, MessageSquare, Package, StickyNote } from "lucide-react";
 import { toast } from "sonner";
+import { format, formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 const STATUS_OPTIONS = [
-  { value: "novo", label: "Novo" },
-  { value: "em_atendimento", label: "Em atendimento" },
-  { value: "qualificado", label: "Qualificado" },
-  { value: "ganho", label: "Ganho" },
-  { value: "perdido", label: "Perdido" },
+  { value: "lead", label: "Lead" },
+  { value: "negociando", label: "Negociando" },
+  { value: "cliente", label: "Cliente" },
+  { value: "inativo", label: "Inativo" },
 ];
 
 const ORIGEM_LABEL: Record<string, string> = {
@@ -29,9 +32,15 @@ const ORIGEM_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
+const currency = (v: number | null | undefined) =>
+  (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const onlyDigits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
+
 export default function CRMContato() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const [notas, setNotas] = useState("");
 
   const { data: contato, isLoading } = useQuery({
     queryKey: ["crm_contact", id],
@@ -47,6 +56,10 @@ export default function CRMContato() {
     enabled: !!id,
   });
 
+  useEffect(() => {
+    setNotas(contato?.notas ?? "");
+  }, [contato?.id]);
+
   const updateStatus = useMutation({
     mutationFn: async (status: string) => {
       const { error } = await supabase
@@ -60,6 +73,49 @@ export default function CRMContato() {
       toast.success("Status atualizado");
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar status"),
+  });
+
+  const saveNotas = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("crm_contacts")
+        .update({ notas })
+        .eq("id", id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_contact", id] });
+      toast.success("Anotações salvas");
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+  });
+
+  const tel = onlyDigits(contato?.telefone);
+  const { data: pedidos } = useQuery({
+    queryKey: ["crm_contact_pedidos", id, tel],
+    enabled: !!contato && !!tel,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pedidos")
+        .select("id, numero_pedido, data_pedido, valor_bruto, cliente_telefone")
+        .order("data_pedido", { ascending: false });
+      if (error) throw error;
+      return (data ?? []).filter((p) => onlyDigits(p.cliente_telefone).endsWith(tel.slice(-8)));
+    },
+  });
+
+  const { data: mensagens } = useQuery({
+    queryKey: ["crm_messages", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_messages")
+        .select("*")
+        .eq("contact_id", id!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   if (isLoading) {
@@ -131,7 +187,7 @@ export default function CRMContato() {
             <div className="flex flex-col gap-1 md:items-end">
               <span className="text-xs text-muted-foreground">Status</span>
               <Select
-                value={contato.status ?? "novo"}
+                value={contato.status ?? "lead"}
                 onValueChange={(v) => updateStatus.mutate(v)}
                 disabled={updateStatus.isPending}
               >
@@ -156,6 +212,93 @@ export default function CRMContato() {
                 <Badge key={tag} variant="outline">
                   {tag}
                 </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <StickyNote className="h-4 w-4" /> Anotações
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+            placeholder="Adicione observações sobre este contato..."
+            rows={5}
+          />
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveNotas.mutate()}
+              disabled={saveNotas.isPending || notas === (contato.notas ?? "")}
+            >
+              {saveNotas.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Package className="h-4 w-4" /> Pedidos Vinculados
+            {pedidos && <Badge variant="secondary">{pedidos.length}</Badge>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!pedidos || pedidos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum pedido vinculado a este contato.</p>
+          ) : (
+            <div className="divide-y">
+              {pedidos.map((p) => (
+                <div key={p.id} className="flex items-center justify-between py-3 text-sm">
+                  <div className="flex flex-col">
+                    <span className="font-medium">#{p.numero_pedido}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {p.data_pedido ? format(new Date(p.data_pedido), "dd/MM/yyyy", { locale: ptBR }) : "—"}
+                    </span>
+                  </div>
+                  <span className="font-semibold">{currency(p.valor_bruto)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="h-4 w-4" /> Histórico de Mensagens
+            {mensagens && <Badge variant="secondary">{mensagens.length}</Badge>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!mensagens || mensagens.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma mensagem registrada.</p>
+          ) : (
+            <div className="space-y-3">
+              {mensagens.map((m) => (
+                <div
+                  key={m.id}
+                  className={`rounded-lg border p-3 text-sm ${
+                    m.direcao === "recebida" ? "bg-muted/40" : "bg-primary/5"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <Badge variant="outline" className="text-[10px]">
+                      {m.direcao === "recebida" ? "Recebida" : "Enviada"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(m.created_at), { addSuffix: true, locale: ptBR })}
+                    </span>
+                  </div>
+                  <p className="whitespace-pre-wrap">{m.conteudo}</p>
+                </div>
               ))}
             </div>
           )}

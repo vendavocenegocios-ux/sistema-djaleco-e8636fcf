@@ -64,12 +64,15 @@ serve(async (req) => {
       contato = novo;
     }
 
-    await supabase.from("crm_messages").insert({
+    const { error: insertError } = await supabase.from("crm_messages").insert({
       contact_id: contato!.id,
       conteudo,
       direcao: "recebida",
-      canal: "whatsapp",
     });
+
+    if (insertError) {
+      console.error("[webhook] insert error:", insertError);
+    }
 
     await supabase
       .from("crm_contacts")

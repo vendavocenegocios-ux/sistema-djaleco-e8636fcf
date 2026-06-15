@@ -155,7 +155,7 @@ export default function CRMContato() {
   useEffect(() => {
     if (!contactId) return;
     const channel = supabase
-      .channel("crm-messages-" + contactId)
+      .channel(`crm-messages-${contactId}`)
       .on(
         "postgres_changes",
         {
@@ -165,26 +165,18 @@ export default function CRMContato() {
           filter: `contact_id=eq.${contactId}`,
         },
         (payload) => {
+          console.log("Realtime INSERT recebido:", payload.new);
           setMessages((prev) => {
-            const exists = prev.some((m) => m.id === payload.new.id);
-            if (exists) return prev;
-            // Replace optimistic temp message if present
-            const optimisticIndex = prev.findIndex(
-              (m) =>
-                m.id?.toString().startsWith("temp-") &&
-                m.conteudo === payload.new.conteudo &&
-                m.direcao === payload.new.direcao,
-            );
-            if (optimisticIndex !== -1) {
-              const next = [...prev];
-              next[optimisticIndex] = payload.new as any;
-              return next;
-            }
+            const isDuplicate = prev.some((m) => m.id === payload.new.id);
+            if (isDuplicate) return prev;
             return [...prev, payload.new as any];
           });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Realtime subscription status:", status);
+      });
+
     return () => {
       supabase.removeChannel(channel);
     };
@@ -457,8 +449,8 @@ export default function CRMContato() {
                   <div
                     className={`max-w-[75%] rounded-2xl px-3.5 py-2 shadow-sm ${
                       enviada
-                        ? "bg-emerald-700 text-white rounded-br-sm"
-                        : "bg-card border rounded-bl-sm"
+                        ? "bg-[#075E54] text-white rounded-br-sm"
+                        : "bg-white border rounded-bl-sm"
                     }`}
                   >
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">
@@ -466,7 +458,7 @@ export default function CRMContato() {
                     </p>
                     <p
                       className={`text-[10px] mt-1 ${
-                        enviada ? "text-emerald-100/80" : "text-muted-foreground"
+                        enviada ? "text-white/70" : "text-muted-foreground"
                       } text-right`}
                     >
                       {format(new Date(m.created_at), "dd/MM HH:mm", { locale: ptBR })}

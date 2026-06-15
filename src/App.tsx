@@ -16,6 +16,7 @@ const NovoPedido = lazy(() => import("./pages/NovoPedido"));
 const Producao = lazy(() => import("./pages/Producao"));
 const Produtos = lazy(() => import("./pages/Produtos"));
 const Clientes = lazy(() => import("./pages/Clientes"));
+const CRM = lazy(() => import("./pages/CRM"));
 const ClienteDetalhe = lazy(() => import("./pages/ClienteDetalhe"));
 const Financeiro = lazy(() => import("./pages/Financeiro"));
 const Vendedores = lazy(() => import("./pages/Vendedores"));
@@ -41,6 +42,7 @@ function AppRoutes() {
         <Route path="/producao" element={<ProtectedRoute><Producao /></ProtectedRoute>} />
         <Route path="/produtos" element={<ProtectedRoute><Produtos /></ProtectedRoute>} />
         <Route path="/clientes" element={<ProtectedRoute><Clientes /></ProtectedRoute>} />
+        <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
         <Route path="/clientes/:id" element={<ProtectedRoute><ClienteDetalhe /></ProtectedRoute>} />
         <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
         <Route path="/vendedores" element={<ProtectedRoute adminOnly><Vendedores /></ProtectedRoute>} />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -68,8 +68,7 @@ export default function CRM() {
     telefone: "",
     email: "",
     origem: "whatsapp",
-    status: "novo" as ColumnKey,
-    tags: "",
+    notas: "",
   });
 
   const { data: contatos, isLoading } = useQuery({
@@ -83,6 +82,30 @@ export default function CRM() {
       return data ?? [];
     },
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("crm_contacts_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "crm_contacts" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "crm_messages" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["crm_last_messages"] });
+          qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [qc]);
 
   const { data: lastMessages } = useQuery({
     queryKey: ["crm_last_messages"],
@@ -104,17 +127,13 @@ export default function CRM() {
 
   const create = useMutation({
     mutationFn: async () => {
-      const tags = form.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
       const { error } = await supabase.from("crm_contacts").insert({
         nome: form.nome.trim(),
         telefone: form.telefone.trim(),
         email: form.email.trim() || null,
         origem: form.origem,
-        status: form.status,
-        tags,
+        status: "novo",
+        notas: form.notas.trim() || null,
       });
       if (error) throw error;
     },
@@ -122,7 +141,7 @@ export default function CRM() {
       toast.success("Contato criado");
       qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
       setOpen(false);
-      setForm({ nome: "", telefone: "", email: "", origem: "whatsapp", status: "novo", tags: "" });
+      setForm({ nome: "", telefone: "", email: "", origem: "whatsapp", notas: "" });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar contato"),
   });
@@ -164,34 +183,21 @@ export default function CRM() {
                   <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Origem</Label>
-                  <Select value={form.origem} onValueChange={(v) => setForm({ ...form, origem: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                      <SelectItem value="site">Site</SelectItem>
-                      <SelectItem value="indicacao">Indicação</SelectItem>
-                      <SelectItem value="outro">Outro</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Status</Label>
-                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as ColumnKey })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {COLUMNS.map((c) => (
-                        <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-1.5">
+                <Label>Origem</Label>
+                <Select value={form.origem} onValueChange={(v) => setForm({ ...form, origem: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="site">Site</SelectItem>
+                    <SelectItem value="indicacao">Indicação</SelectItem>
+                    <SelectItem value="outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="tags">Tags (separadas por vírgula)</Label>
-                <Textarea id="tags" rows={2} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                <Label htmlFor="notas">Notas</Label>
+                <Textarea id="notas" rows={3} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
               </div>
             </div>
             <DialogFooter>
@@ -204,11 +210,14 @@ export default function CRM() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="flex gap-4 overflow-x-auto pb-3 -mx-4 px-4 md:-mx-6 md:px-6">
         {COLUMNS.map((col) => {
           const items = grouped[col.key] ?? [];
           return (
-            <div key={col.key} className={`rounded-lg border bg-muted/30 p-3 flex flex-col min-h-[200px] ${col.ring}`}>
+            <div
+              key={col.key}
+              className={`shrink-0 w-[300px] md:w-[320px] rounded-lg border bg-muted/30 p-3 flex flex-col h-[calc(100vh-180px)] ${col.ring}`}
+            >
               <div className="flex items-center justify-between mb-3 px-1">
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
@@ -216,7 +225,7 @@ export default function CRM() {
                 </div>
                 <Badge variant="secondary" className="text-xs">{items.length}</Badge>
               </div>
-              <div className="space-y-2 flex-1">
+              <div className="space-y-2 flex-1 overflow-y-auto pr-1">
                 {isLoading ? (
                   <div className="h-20 rounded-md bg-muted animate-pulse" />
                 ) : items.length === 0 ? (
@@ -232,7 +241,7 @@ export default function CRM() {
                         className="p-3 cursor-pointer hover:shadow-md hover:border-primary/40 transition-all space-y-2"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-medium text-sm truncate">{c.nome}</span>
+                          <span className="font-medium text-sm truncate">{c.nome || c.telefone}</span>
                           <Badge variant="outline" className={`text-[10px] shrink-0 ${ORIGEM_CLASS[c.origem ?? "outro"] ?? ORIGEM_CLASS.outro}`}>
                             {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem}
                           </Badge>

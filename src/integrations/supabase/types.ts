@@ -116,6 +116,48 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_contacts: {
+        Row: {
+          created_at: string | null
+          direcao: string | null
+          email: string | null
+          id: string
+          nome: string
+          notas: string | null
+          origem: string | null
+          status: string | null
+          tags: string[] | null
+          telefone: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          direcao?: string | null
+          email?: string | null
+          id?: string
+          nome: string
+          notas?: string | null
+          origem?: string | null
+          status?: string | null
+          tags?: string[] | null
+          telefone: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          direcao?: string | null
+          email?: string | null
+          id?: string
+          nome?: string
+          notas?: string | null
+          origem?: string | null
+          status?: string | null
+          tags?: string[] | null
+          telefone?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       pedido_itens: {
         Row: {
           cor: string | null

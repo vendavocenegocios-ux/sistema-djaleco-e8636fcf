@@ -818,11 +818,27 @@ export default function CRMContato() {
       {/* Right panel */}
       <section className="flex-1 flex flex-col min-w-0 bg-muted/20">
         <header className="px-4 md:px-6 py-3 border-b bg-card flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="font-semibold truncate">{displayName}</h2>
-            <p className="text-xs text-muted-foreground">{contato.telefone}</p>
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar className="h-9 w-9 shrink-0">
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
+              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <h2 className="font-semibold truncate">{displayName}</h2>
+              <p className="text-xs text-muted-foreground">{contato.telefone}</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className={
+                isCustomer
+                  ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                  : "bg-slate-100 text-slate-700 border-slate-200"
+              }
+            >
+              {isCustomer ? "Cliente" : "Lead"}
+            </Badge>
             <Button
               variant="outline"
               size="sm"

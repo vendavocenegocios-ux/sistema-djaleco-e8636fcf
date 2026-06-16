@@ -63,17 +63,46 @@ Deno.serve(async (req) => {
       });
     }
     const remoteJid = `${String(contact.telefone).replace(/\D/g, "")}@s.whatsapp.net`;
-    const keyObj = {
-      id: msg.evolution_message_id,
-      remoteJid,
-      fromMe: msg.direcao === "enviada",
-    };
+    const baseUrl = evolutionUrl.replace(/\/$/, "");
 
-    const url = `${evolutionUrl.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${instance}`;
+    // 1) Fetch the full stored message from Evolution so we pass the real
+    //    message object (with imageMessage/audioMessage/videoMessage/etc.)
+    //    instead of letting Baileys re-resolve from just the key, which can
+    //    misclassify it as a templateMessage.
+    const findResp = await fetch(`${baseUrl}/chat/findMessages/${instance}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify({
+        where: { key: { id: msg.evolution_message_id, remoteJid } },
+      }),
+    });
+    if (!findResp.ok) {
+      const t = await findResp.text();
+      return new Response(JSON.stringify({ error: "Falha ao localizar mensagem", detail: t }), {
+        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const findJson = await findResp.json();
+    const records = Array.isArray(findJson)
+      ? findJson
+      : findJson?.records || findJson?.messages?.records || findJson?.data || [];
+    const stored = Array.isArray(records) ? records[0] : records;
+    if (!stored) {
+      return new Response(JSON.stringify({ error: "Mensagem não encontrada na Evolution" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Evolution stores the original Baileys payload under `message` (jsonb)
+    const fullMessage = stored.message
+      ? { key: stored.key, message: stored.message, messageType: stored.messageType }
+      : stored;
+
+    const url = `${baseUrl}/chat/getBase64FromMediaMessage/${instance}`;
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: apiKey },
-      body: JSON.stringify({ message: { key: keyObj }, convertToMp4: false }),
+      body: JSON.stringify({ message: fullMessage, convertToMp4: false }),
     });
     if (!resp.ok) {
       const t = await resp.text();

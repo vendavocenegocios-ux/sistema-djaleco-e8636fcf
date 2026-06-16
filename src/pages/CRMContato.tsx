@@ -484,9 +484,20 @@ export default function CRMContato() {
             <h2 className="font-semibold truncate">{displayName}</h2>
             <p className="text-xs text-muted-foreground">{contato.telefone}</p>
           </div>
-          <Badge variant="outline">
-            {STATUS_LABEL[contato.status ?? "novo"] ?? contato.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleImportHistory}
+              disabled={importing}
+            >
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              {importing ? "Importando..." : "Importar histórico"}
+            </Button>
+            <Badge variant="outline">
+              {STATUS_LABEL[contato.status ?? "novo"] ?? contato.status}
+            </Badge>
+          </div>
         </header>
 
         <div

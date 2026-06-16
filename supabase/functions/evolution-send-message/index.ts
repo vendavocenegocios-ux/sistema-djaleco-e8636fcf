@@ -41,11 +41,21 @@ Deno.serve(async (req) => {
     });
 
     const result = await response.json();
+    const evolutionMessageId =
+      result?.key?.id || result?.messageId || result?.id || null;
 
-    return new Response(JSON.stringify({ success: response.ok, result, contact_id }), {
-      status: response.ok ? 200 : 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        success: response.ok,
+        result,
+        contact_id,
+        evolution_message_id: evolutionMessageId,
+      }),
+      {
+        status: response.ok ? 200 : 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   } catch (error) {
     console.error("evolution-send-message error:", error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {

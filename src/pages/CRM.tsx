@@ -372,65 +372,59 @@ export default function CRM() {
         </Dialog>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-3 -mx-4 px-4 md:-mx-6 md:px-6">
-        {COLUMNS.map((col) => {
-          const items = grouped[col.key] ?? [];
-          return (
-            <div
-              key={col.key}
-              className={`shrink-0 w-[300px] md:w-[320px] rounded-lg border bg-muted/30 p-3 flex flex-col h-[calc(100vh-180px)] ${col.ring}`}
-            >
-              <div className="flex items-center justify-between mb-3 px-1">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
-                  <h2 className="font-semibold text-sm">{col.label}</h2>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
+        <div className="flex gap-4 overflow-x-auto pb-3 -mx-4 px-4 md:-mx-6 md:px-6">
+          {COLUMNS.map((col) => {
+            const items = grouped[col.key] ?? [];
+            return (
+              <DroppableColumn
+                key={col.key}
+                id={col.key}
+                className={`shrink-0 w-[300px] md:w-[320px] rounded-lg border bg-muted/30 p-3 flex flex-col h-[calc(100vh-180px)] transition-colors ${col.ring}`}
+              >
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
+                    <h2 className="font-semibold text-sm">{col.label}</h2>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {items.length}
+                  </Badge>
                 </div>
-                <Badge variant="secondary" className="text-xs">{items.length}</Badge>
-              </div>
-              <div className="space-y-2 flex-1 overflow-y-auto pr-1">
-                {isLoading ? (
-                  <div className="h-20 rounded-md bg-muted animate-pulse" />
-                ) : items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">Nenhum contato</p>
-                ) : (
-                  items.map((c) => {
-                    const last = lastMessages?.get(c.id);
-                    const lastDate = last?.created_at ?? c.updated_at ?? c.created_at;
-                    return (
-                      <Card
+                <div className="space-y-2 flex-1 overflow-y-auto pr-1">
+                  {isLoading ? (
+                    <div className="h-20 rounded-md bg-muted animate-pulse" />
+                  ) : items.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">
+                      Arraste aqui ou nenhum contato
+                    </p>
+                  ) : (
+                    items.map((c) => (
+                      <DraggableCard
                         key={c.id}
+                        c={c}
                         onClick={() => navigate(`/crm/${c.id}`)}
-                        className="p-3 cursor-pointer hover:shadow-md hover:border-primary/40 transition-all space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="font-medium text-sm truncate">{c.nome || c.telefone}</span>
-                          <Badge variant="outline" className={`text-[10px] shrink-0 ${ORIGEM_CLASS[c.origem ?? "outro"] ?? ORIGEM_CLASS.outro}`}>
-                            {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Phone className="h-3 w-3" />
-                          <span className="truncate">{c.telefone}</span>
-                        </div>
-                        {last?.conteudo && (
-                          <p className="text-xs text-foreground/80 line-clamp-2 leading-snug">
-                            {truncate(last.conteudo, 60)}
-                          </p>
-                        )}
-                        <div className="text-[11px] text-muted-foreground">
-                          {lastDate
-                            ? formatDistanceToNow(new Date(lastDate), { addSuffix: true, locale: ptBR })
-                            : "—"}
-                        </div>
-                      </Card>
-                    );
-                  })
-                )}
-              </div>
+                      />
+                    ))
+                  )}
+                </div>
+              </DroppableColumn>
+            );
+          })}
+        </div>
+        <DragOverlay>
+          {activeContact ? (
+            <div className="w-[300px] md:w-[320px] rotate-2 shadow-2xl">
+              <ContactCard c={activeContact} onClick={() => {}} />
             </div>
-          );
-        })}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }

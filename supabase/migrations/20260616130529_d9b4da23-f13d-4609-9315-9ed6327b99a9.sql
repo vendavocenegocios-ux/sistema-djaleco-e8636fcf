@@ -1,0 +1,1 @@
+ALTER TABLE public.crm_messages ADD COLUMN IF NOT EXISTS transcription text;

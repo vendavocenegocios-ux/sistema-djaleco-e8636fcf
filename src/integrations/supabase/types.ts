@@ -169,28 +169,43 @@ export type Database = {
       }
       crm_messages: {
         Row: {
+          caption: string | null
           contact_id: string
-          conteudo: string
+          conteudo: string | null
           created_at: string
           direcao: string
           evolution_message_id: string | null
           id: string
+          media_filename: string | null
+          media_mime: string | null
+          media_type: string | null
+          media_url: string | null
         }
         Insert: {
+          caption?: string | null
           contact_id: string
-          conteudo: string
+          conteudo?: string | null
           created_at?: string
           direcao?: string
           evolution_message_id?: string | null
           id?: string
+          media_filename?: string | null
+          media_mime?: string | null
+          media_type?: string | null
+          media_url?: string | null
         }
         Update: {
+          caption?: string | null
           contact_id?: string
-          conteudo?: string
+          conteudo?: string | null
           created_at?: string
           direcao?: string
           evolution_message_id?: string | null
           id?: string
+          media_filename?: string | null
+          media_mime?: string | null
+          media_type?: string | null
+          media_url?: string | null
         }
         Relationships: [
           {

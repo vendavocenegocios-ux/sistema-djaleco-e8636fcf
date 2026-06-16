@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
 
     const { data: contato, error: contatoErr } = await supabase
       .from("crm_contacts")
-      .select("id, telefone")
+      .select("id, telefone, avatar_url, push_name")
       .eq("id", contact_id)
       .maybeSingle();
     if (contatoErr || !contato) {
@@ -130,6 +130,33 @@ Deno.serve(async (req) => {
     }
 
     const telDigits = String(contato.telefone).replace(/\D/g, "");
+
+    // Tenta buscar avatar se ainda não houver
+    if (!contato.avatar_url) {
+      try {
+        const picResp = await fetch(
+          `${evolutionUrl.replace(/\/$/, "")}/chat/fetchProfilePictureUrl/${instance}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: apiKey },
+            body: JSON.stringify({ number: telDigits }),
+          },
+        );
+        if (picResp.ok) {
+          const pj = await picResp.json();
+          const avatarUrl = pj?.profilePictureUrl || pj?.url || null;
+          if (avatarUrl) {
+            await supabase
+              .from("crm_contacts")
+              .update({ avatar_url: avatarUrl })
+              .eq("id", contato.id);
+          }
+        }
+      } catch (e) {
+        console.error("[import-history] fetchProfilePicture erro", e);
+      }
+    }
+
     const url = `${evolutionUrl.replace(/\/$/, "")}/chat/findMessages/${instance}`;
 
     const jidCandidates = [
@@ -179,10 +206,14 @@ Deno.serve(async (req) => {
     debug.sample = lastSample;
 
     let imported = 0;
+    let firstPushName: string | null = null;
     for (const m of records) {
       const evolutionId = m?.key?.id || m?.id || null;
       if (!evolutionId) continue;
       const fromMe = m?.key?.fromMe ?? false;
+      if (!fromMe && !firstPushName && m?.pushName) {
+        firstPushName = String(m.pushName);
+      }
       const innerMessage = m?.message || null;
       const mediaInfo = extractMediaInfo(innerMessage);
       const textoConteudo = extractText(m);
@@ -225,9 +256,13 @@ Deno.serve(async (req) => {
     }
 
     // Importação não deve marcar como não lido — zera o contador após importar.
+    const finalPatch: Record<string, unknown> = { unread_count: 0 };
+    if (firstPushName && firstPushName !== contato.push_name) {
+      finalPatch.push_name = firstPushName;
+    }
     await supabase
       .from("crm_contacts")
-      .update({ unread_count: 0 })
+      .update(finalPatch)
       .eq("id", contato.id);
 
     return new Response(

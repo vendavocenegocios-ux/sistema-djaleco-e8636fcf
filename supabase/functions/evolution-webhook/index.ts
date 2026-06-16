@@ -9,6 +9,28 @@ const corsHeaders = {
 
 const BUCKET = "crm-media";
 
+async function fetchProfilePicture(
+  evolutionUrl: string,
+  instance: string,
+  apiKey: string,
+  number: string,
+): Promise<string | null> {
+  try {
+    const url = `${evolutionUrl.replace(/\/$/, "")}/chat/fetchProfilePictureUrl/${instance}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify({ number }),
+    });
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    return json?.profilePictureUrl || json?.url || null;
+  } catch (e) {
+    console.error("[profilePic] erro", e);
+    return null;
+  }
+}
+
 const MEDIA_KEYS = [
   ["imageMessage", "image"],
   ["videoMessage", "video"],
@@ -155,22 +177,45 @@ serve(async (req) => {
 
     let { data: contato } = await supabase
       .from("crm_contacts")
-      .select("id, status")
+      .select("id, status, avatar_url, push_name")
       .eq("telefone", telefone)
       .maybeSingle();
 
+    const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+    const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
+    const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
+
     if (!contato) {
+      let avatarUrl: string | null = null;
+      if (evolutionUrl && instance && apiKey) {
+        avatarUrl = await fetchProfilePicture(evolutionUrl, instance, apiKey, telefone);
+      }
       const { data: novo } = await supabase
         .from("crm_contacts")
         .insert({
           nome: nomeWhats || telefone,
+          push_name: nomeWhats || null,
+          avatar_url: avatarUrl,
           telefone,
           origem: "whatsapp",
           status: "novo",
         })
-        .select("id, status")
+        .select("id, status, avatar_url, push_name")
         .single();
       contato = novo;
+    } else {
+      // Atualiza push_name se mudou e tenta buscar avatar se ainda não temos
+      const patch: Record<string, unknown> = {};
+      if (nomeWhats && nomeWhats !== contato.push_name) {
+        patch.push_name = nomeWhats;
+      }
+      if (!contato.avatar_url && evolutionUrl && instance && apiKey) {
+        const avatarUrl = await fetchProfilePicture(evolutionUrl, instance, apiKey, telefone);
+        if (avatarUrl) patch.avatar_url = avatarUrl;
+      }
+      if (Object.keys(patch).length > 0) {
+        await supabase.from("crm_contacts").update(patch).eq("id", contato.id);
+      }
     }
 
     const direcao = fromMe ? "enviada" : "recebida";
@@ -179,9 +224,6 @@ serve(async (req) => {
     let mediaUrl: string | null = null;
     let mediaMime: string | null = mediaInfo?.mimetype ?? null;
     if (mediaInfo && keyObj && evolutionMessageId) {
-      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
-      const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
-      const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
       if (evolutionUrl && instance && apiKey) {
         const stored = await downloadAndStoreMedia(
           supabase,

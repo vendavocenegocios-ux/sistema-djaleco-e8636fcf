@@ -204,7 +204,8 @@ Deno.serve(async (req) => {
 
       const valorBruto = parseFloat(order.total) || 0;
       const frete = parseFloat(order.shipping_cost_customer) || parseFloat(order.shipping_cost_owner) || 0;
-      const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
+      const rawTracking = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
+      const { rastreio_codigo: rastreioCodigo, superfrete_order_id: superfreteOrderId } = classifyTracking(rawTracking);
       const statusPagamento = order.payment_status === "paid" ? "recebido" : "pendente";
 
       const existing = pedidoMap.get(order.id);
@@ -223,10 +224,9 @@ Deno.serve(async (req) => {
           valor_bruto: valorBruto,
           frete,
         };
-        // Only update rastreio if we got one and the existing doesn't have one
-        if (rastreioCodigo) {
-          updateData.rastreio_codigo = rastreioCodigo;
-        }
+        // Only update tracking fields if we got something
+        if (rastreioCodigo) updateData.rastreio_codigo = rastreioCodigo;
+        if (superfreteOrderId) updateData.superfrete_order_id = superfreteOrderId;
         // Sync customer note from Nuvemshop
         if (order.note) {
           updateData.observacoes_pedido = order.note;
@@ -260,6 +260,7 @@ Deno.serve(async (req) => {
           ted_confirmado: false,
           valor_liquido: valorLiquido,
           rastreio_codigo: rastreioCodigo,
+          superfrete_order_id: superfreteOrderId,
           vendedor_id: WILLIAM_VENDEDOR_ID,
           comissao,
           status_pagamento: statusPagamento,

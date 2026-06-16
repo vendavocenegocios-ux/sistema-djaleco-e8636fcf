@@ -6,13 +6,85 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const BUCKET = "crm-media";
+
+const MEDIA_KEYS = [
+  ["imageMessage", "image"],
+  ["videoMessage", "video"],
+  ["audioMessage", "audio"],
+  ["documentMessage", "document"],
+  ["stickerMessage", "sticker"],
+] as const;
+
+function extractMediaInfo(message: any) {
+  if (!message) return null;
+  for (const [key, type] of MEDIA_KEYS) {
+    const node = message[key];
+    if (node) {
+      return {
+        type,
+        mimetype: node.mimetype || null,
+        caption: node.caption || null,
+        filename: node.fileName || node.title || null,
+      };
+    }
+  }
+  return null;
+}
+
+function extOf(mime: string | null, fallback: string) {
+  if (!mime) return fallback;
+  const map: Record<string, string> = {
+    "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
+    "image/webp": "webp", "image/gif": "gif",
+    "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav",
+    "video/mp4": "mp4", "video/quicktime": "mov", "application/pdf": "pdf",
+  };
+  if (map[mime]) return map[mime];
+  const sub = mime.split("/")[1];
+  return sub ? sub.split(";")[0] : fallback;
+}
+
+async function ensureBucket(supabase: any) {
+  try { await supabase.storage.createBucket(BUCKET, { public: true }); } catch (_) {}
+}
+
+async function downloadAndStoreMedia(
+  supabase: any, evolutionUrl: string, instance: string, apiKey: string,
+  keyObj: any, contactId: string, messageId: string, mimeHint: string | null,
+) {
+  try {
+    const url = `${evolutionUrl.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${instance}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify({ message: { key: keyObj }, convertToMp4: false }),
+    });
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    const base64 = json?.base64 || json?.data?.base64 || json?.media;
+    const mime = json?.mimetype || json?.mediaType || mimeHint || "application/octet-stream";
+    if (!base64) return null;
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const ext = extOf(mime, "bin");
+    const path = `${contactId}/${messageId}.${ext}`;
+    await ensureBucket(supabase);
+    const { error } = await supabase.storage.from(BUCKET).upload(path, bytes, {
+      contentType: mime, upsert: true,
+    });
+    if (error) { console.error("[media] upload erro", error); return null; }
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    return { url: pub.publicUrl, mime };
+  } catch (e) { console.error("[media] exceção", e); return null; }
+}
+
 function extractText(msg: any): string {
   return (
     msg?.message?.conversation ||
     msg?.message?.extendedTextMessage?.text ||
     msg?.conversation ||
     msg?.text ||
-    "[mídia]"
+    ""
   );
 }
 
@@ -111,23 +183,44 @@ Deno.serve(async (req) => {
       const evolutionId = m?.key?.id || m?.id || null;
       if (!evolutionId) continue;
       const fromMe = m?.key?.fromMe ?? false;
-      const conteudo = extractText(m);
+      const innerMessage = m?.message || null;
+      const mediaInfo = extractMediaInfo(innerMessage);
+      const textoConteudo = extractText(m);
+      const conteudo = textoConteudo || mediaInfo?.caption || (mediaInfo ? "" : "[mídia]");
       const createdAt = m?.messageTimestamp
         ? new Date(
             Number(m.messageTimestamp) * (String(m.messageTimestamp).length > 10 ? 1 : 1000),
           ).toISOString()
         : new Date().toISOString();
 
-      const { error } = await supabase.from("crm_messages").upsert(
-        {
-          contact_id: contato.id,
-          conteudo,
-          direcao: fromMe ? "enviada" : "recebida",
-          evolution_message_id: evolutionId,
-          created_at: createdAt,
-        },
-        { onConflict: "evolution_message_id", ignoreDuplicates: true },
-      );
+      let mediaUrl: string | null = null;
+      let mediaMime: string | null = mediaInfo?.mimetype ?? null;
+      if (mediaInfo && m?.key) {
+        const stored = await downloadAndStoreMedia(
+          supabase, evolutionUrl, instance, apiKey,
+          m.key, contato.id, evolutionId, mediaInfo.mimetype,
+        );
+        if (stored) { mediaUrl = stored.url; mediaMime = stored.mime; }
+      }
+
+      const payload: Record<string, unknown> = {
+        contact_id: contato.id,
+        conteudo,
+        direcao: fromMe ? "enviada" : "recebida",
+        evolution_message_id: evolutionId,
+        created_at: createdAt,
+      };
+      if (mediaInfo) {
+        payload.media_type = mediaInfo.type;
+        payload.media_mime = mediaMime;
+        payload.media_url = mediaUrl;
+        payload.media_filename = mediaInfo.filename;
+        payload.caption = mediaInfo.caption;
+      }
+
+      const { error } = await supabase.from("crm_messages").upsert(payload, {
+        onConflict: "evolution_message_id", ignoreDuplicates: true,
+      });
       if (!error) imported++;
     }
 

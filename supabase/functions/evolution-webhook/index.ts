@@ -7,6 +7,110 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const BUCKET = "crm-media";
+
+const MEDIA_KEYS = [
+  ["imageMessage", "image"],
+  ["videoMessage", "video"],
+  ["audioMessage", "audio"],
+  ["documentMessage", "document"],
+  ["stickerMessage", "sticker"],
+  ["documentWithCaptionMessage", "document"],
+] as const;
+
+function extractMediaInfo(message: any) {
+  if (!message) return null;
+  for (const [key, type] of MEDIA_KEYS) {
+    const node =
+      message[key] ||
+      message?.documentWithCaptionMessage?.message?.documentMessage;
+    if (node) {
+      return {
+        type,
+        mimetype: node.mimetype || null,
+        caption: node.caption || null,
+        filename: node.fileName || node.title || null,
+      };
+    }
+  }
+  return null;
+}
+
+function extOf(mime: string | null, fallback: string) {
+  if (!mime) return fallback;
+  const map: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "audio/ogg": "ogg",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/wav": "wav",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "application/pdf": "pdf",
+  };
+  if (map[mime]) return map[mime];
+  const sub = mime.split("/")[1];
+  return sub ? sub.split(";")[0] : fallback;
+}
+
+async function ensureBucket(supabase: any) {
+  try {
+    await supabase.storage.createBucket(BUCKET, { public: true });
+  } catch (_) { /* ignore - já existe */ }
+}
+
+async function downloadAndStoreMedia(
+  supabase: any,
+  evolutionUrl: string,
+  instance: string,
+  apiKey: string,
+  keyObj: any,
+  contactId: string,
+  messageId: string,
+  mediaType: string,
+  mimeHint: string | null,
+) {
+  try {
+    const url = `${evolutionUrl.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${instance}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify({ message: { key: keyObj }, convertToMp4: false }),
+    });
+    if (!resp.ok) {
+      console.error("[media] getBase64 falhou", resp.status, await resp.text());
+      return null;
+    }
+    const json = await resp.json();
+    const base64 = json?.base64 || json?.data?.base64 || json?.media;
+    const mime = json?.mimetype || json?.mediaType || mimeHint || "application/octet-stream";
+    if (!base64) {
+      console.error("[media] sem base64 na resposta", Object.keys(json || {}));
+      return null;
+    }
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const ext = extOf(mime, "bin");
+    const path = `${contactId}/${messageId}.${ext}`;
+    await ensureBucket(supabase);
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, bytes, { contentType: mime, upsert: true });
+    if (error) {
+      console.error("[media] upload erro", error);
+      return null;
+    }
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    return { url: pub.publicUrl, mime };
+  } catch (e) {
+    console.error("[media] exceção", e);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -30,17 +134,20 @@ serve(async (req) => {
       .replace("@s.whatsapp.net", "")
       .replace("@c.us", "");
 
-    const conteudo =
-      body.data?.message?.conversation ||
-      body.data?.message?.extendedTextMessage?.text ||
-      msgData?.message?.conversation ||
-      msgData?.message?.extendedTextMessage?.text ||
-      "[mídia]";
+    const innerMessage =
+      body.data?.message || msgData?.message || null;
+    const textoConteudo =
+      innerMessage?.conversation ||
+      innerMessage?.extendedTextMessage?.text ||
+      null;
+    const mediaInfo = extractMediaInfo(innerMessage);
+    const conteudo = textoConteudo ?? mediaInfo?.caption ?? (mediaInfo ? "" : "[mídia]");
 
     const nomeWhats = body.data?.pushName || msgData?.pushName || "";
     const fromMe = body.data?.key?.fromMe ?? msgData?.key?.fromMe ?? false;
     const evolutionMessageId =
       body.data?.key?.id || msgData?.key?.id || null;
+    const keyObj = body.data?.key || msgData?.key || null;
 
     if (!telefone) {
       return new Response("ok", { status: 200, headers: corsHeaders });
@@ -68,6 +175,32 @@ serve(async (req) => {
 
     const direcao = fromMe ? "enviada" : "recebida";
 
+    // Faz download da mídia (se houver) antes de inserir
+    let mediaUrl: string | null = null;
+    let mediaMime: string | null = mediaInfo?.mimetype ?? null;
+    if (mediaInfo && keyObj && evolutionMessageId) {
+      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+      const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
+      const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
+      if (evolutionUrl && instance && apiKey) {
+        const stored = await downloadAndStoreMedia(
+          supabase,
+          evolutionUrl,
+          instance,
+          apiKey,
+          keyObj,
+          contato!.id,
+          evolutionMessageId,
+          mediaInfo.type,
+          mediaInfo.mimetype,
+        );
+        if (stored) {
+          mediaUrl = stored.url;
+          mediaMime = stored.mime;
+        }
+      }
+    }
+
     // Upsert by evolution_message_id to avoid duplicates when CRM-sent messages
     // come back through the webhook.
     const payload: Record<string, unknown> = {
@@ -76,6 +209,13 @@ serve(async (req) => {
       direcao,
     };
     if (evolutionMessageId) payload.evolution_message_id = evolutionMessageId;
+    if (mediaInfo) {
+      payload.media_type = mediaInfo.type;
+      payload.media_mime = mediaMime;
+      payload.media_url = mediaUrl;
+      payload.media_filename = mediaInfo.filename;
+      payload.caption = mediaInfo.caption;
+    }
 
     const { error: insertError } = evolutionMessageId
       ? await supabase

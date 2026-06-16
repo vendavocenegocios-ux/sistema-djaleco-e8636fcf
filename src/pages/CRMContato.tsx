@@ -580,6 +580,10 @@ export default function CRMContato() {
   const initials = initialsOf(contato.nome, contato.telefone ?? "?");
   const displayName = contato.nome || contato.telefone || "Sem nome";
   const origem = contato.origem ?? "outro";
+  const pushName = (contato as any).push_name as string | null;
+  const avatarUrl = (contato as any).avatar_url as string | null;
+  const isCustomer = !!customerInfo?.isCustomer;
+  const cliente = customerInfo?.cliente;
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] overflow-hidden">
@@ -593,9 +597,12 @@ export default function CRMContato() {
           </Button>
 
           <div className="flex flex-col items-center text-center gap-3 pb-4 border-b">
-            <div className="h-20 w-20 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-2xl">
-              {initials}
-            </div>
+            <Avatar className="h-20 w-20">
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
+              <AvatarFallback className="bg-primary/10 text-primary font-semibold text-2xl">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
 
             {editingName ? (
               <div className="flex items-center gap-1 w-full">
@@ -645,10 +652,67 @@ export default function CRMContato() {
               </button>
             )}
 
+            {pushName && !contato.nome && (
+              <button
+                type="button"
+                onClick={() =>
+                  updateContact.mutate(
+                    { nome: pushName },
+                    { onSuccess: () => toast.success("Nome salvo") },
+                  )
+                }
+                className="text-xs inline-flex items-center gap-1.5 text-primary hover:underline"
+              >
+                <UserPlus className="h-3 w-3" />
+                Salvar “{pushName}” como nome
+              </button>
+            )}
+
             <p className="text-sm text-muted-foreground">{contato.telefone}</p>
-            <Badge variant="outline" className={ORIGEM_CLASS[origem] ?? ""}>
-              {ORIGEM_LABEL[origem] ?? origem}
-            </Badge>
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <Badge
+                variant="outline"
+                className={
+                  isCustomer
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                    : "bg-slate-100 text-slate-700 border-slate-200"
+                }
+              >
+                {isCustomer ? "Cliente" : "Lead"}
+              </Badge>
+              <Badge variant="outline" className={ORIGEM_CLASS[origem] ?? ""}>
+                {ORIGEM_LABEL[origem] ?? origem}
+              </Badge>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefreshProfile}
+              disabled={refreshingProfile}
+              className="text-xs h-7"
+            >
+              <RefreshCw className={`h-3 w-3 mr-1.5 ${refreshingProfile ? "animate-spin" : ""}`} />
+              Atualizar do WhatsApp
+            </Button>
+
+            {isCustomer && cliente && (
+              <div className="w-full rounded-md border bg-emerald-50 dark:bg-emerald-950/30 text-left text-xs p-2 space-y-0.5">
+                <p className="font-medium inline-flex items-center gap-1.5 text-emerald-900 dark:text-emerald-300">
+                  <UserCheck className="h-3.5 w-3.5" />
+                  Cliente cadastrado
+                </p>
+                <p className="text-muted-foreground">
+                  {cliente.total_pedidos ?? 0} pedido(s) · {currency(Number(cliente.total_gasto ?? 0))}
+                </p>
+                <Link
+                  to={`/clientes/${cliente.id}`}
+                  className="text-primary underline"
+                >
+                  Abrir ficha do cliente
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">

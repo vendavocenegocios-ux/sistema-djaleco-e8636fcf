@@ -875,10 +875,30 @@ export default function CRMContato() {
               return (
                 <div
                   key={m.id}
-                  className={`flex ${enviada ? "justify-end" : "justify-start"}`}
+                  className={`group/msg flex ${enviada ? "justify-end" : "justify-start"}`}
                 >
+                  {enviada && (
+                    <div className="self-center mr-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteMsgId(m.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                            Apagar mensagem
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                   <div
-                    className={`max-w-[75%] rounded-2xl px-3.5 py-2 shadow-sm ${
+                    className={`relative max-w-[75%] rounded-2xl px-3.5 py-2 shadow-sm ${
                       enviada
                         ? "bg-[#075E54] text-white rounded-br-sm"
                         : "bg-white border rounded-bl-sm"
@@ -983,6 +1003,26 @@ export default function CRMContato() {
                       {format(new Date(m.created_at), "dd/MM HH:mm", { locale: ptBR })}
                     </p>
                   </div>
+                  {!enviada && (
+                    <div className="self-center ml-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteMsgId(m.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                            Apagar mensagem
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                 </div>
               );
             })

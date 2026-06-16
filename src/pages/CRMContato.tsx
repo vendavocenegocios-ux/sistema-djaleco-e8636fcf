@@ -28,6 +28,11 @@ import {
   Check,
   X,
   Download,
+  Mic,
+  Square,
+  Trash2,
+  FileText,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -82,6 +87,17 @@ export default function CRMContato() {
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Audio recording
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordCancelledRef = useRef(false);
+  const [sendingAudio, setSendingAudio] = useState(false);
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
 
   const { data: contato, isLoading } = useQuery({
     queryKey: ["crm_contact", contactId],
@@ -255,6 +271,187 @@ export default function CRMContato() {
   };
 
   const [importing, setImporting] = useState(false);
+
+  const pickAudioMime = () => {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4",
+      "audio/ogg;codecs=opus",
+    ];
+    for (const m of candidates) {
+      // @ts-ignore
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(m)) return m;
+    }
+    return "";
+  };
+
+  const startRecording = async () => {
+    if (recording || sendingAudio) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickAudioMime();
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recordedChunksRef.current = [];
+      recordCancelledRef.current = false;
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (recordTimerRef.current) {
+          clearInterval(recordTimerRef.current);
+          recordTimerRef.current = null;
+        }
+        setRecording(false);
+        if (recordCancelledRef.current) {
+          recordedChunksRef.current = [];
+          setRecordingSeconds(0);
+          return;
+        }
+        const blob = new Blob(recordedChunksRef.current, {
+          type: mr.mimeType || "audio/webm",
+        });
+        recordedChunksRef.current = [];
+        setRecordingSeconds(0);
+        await sendRecordedAudio(blob);
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+      setRecordingSeconds(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } catch (e: any) {
+      toast.error("Não foi possível acessar o microfone");
+      console.error(e);
+    }
+  };
+
+  const stopRecording = (cancel: boolean) => {
+    const mr = mediaRecorderRef.current;
+    if (!mr) return;
+    recordCancelledRef.current = cancel;
+    if (mr.state !== "inactive") mr.stop();
+  };
+
+  const blobToBase64 = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        const idx = result.indexOf(",");
+        resolve(idx >= 0 ? result.slice(idx + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+  const sendRecordedAudio = async (blob: Blob) => {
+    if (!contato) return;
+    setSendingAudio(true);
+    try {
+      const base64 = await blobToBase64(blob);
+      const { data: sendResp, error: fnError } = await supabase.functions.invoke(
+        "evolution-send-message",
+        {
+          body: {
+            telefone: contato.telefone,
+            contact_id: contato.id,
+            audio_base64: base64,
+          },
+        },
+      );
+      if (fnError) throw fnError;
+      const evolutionMessageId = (sendResp as any)?.evolution_message_id ?? null;
+
+      // Upload to bucket for local playback
+      const ext = (blob.type.includes("mp4") || blob.type.includes("m4a")) ? "m4a" : "webm";
+      const path = `${contato.id}/sent-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("crm-media")
+        .upload(path, blob, { contentType: blob.type || "audio/webm", upsert: true });
+      let publicUrl: string | null = null;
+      if (!upErr) {
+        const { data: pub } = supabase.storage.from("crm-media").getPublicUrl(path);
+        publicUrl = pub.publicUrl;
+      } else {
+        console.error("upload audio enviado:", upErr);
+      }
+
+      const insertPayload: any = {
+        contact_id: contato.id,
+        conteudo: "",
+        direcao: "enviada",
+        media_type: "audio",
+        media_mime: blob.type || "audio/webm",
+        media_url: publicUrl,
+        ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+      };
+      const { error: insertError } = evolutionMessageId
+        ? await supabase
+            .from("crm_messages")
+            .upsert(insertPayload, {
+              onConflict: "evolution_message_id",
+              ignoreDuplicates: true,
+            })
+        : await supabase.from("crm_messages").insert(insertPayload);
+      if (insertError) throw insertError;
+      toast.success("Áudio enviado");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao enviar áudio");
+    } finally {
+      setSendingAudio(false);
+    }
+  };
+
+  const handleReprocessMedia = async (messageId: string) => {
+    setReprocessingId(messageId);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "crm-reprocess-media",
+        { body: { message_id: messageId } },
+      );
+      if (error) throw error;
+      const mediaUrl = (data as any)?.media_url;
+      if (mediaUrl) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId ? { ...m, media_url: mediaUrl, media_type: m.media_type ?? "audio" } : m,
+          ),
+        );
+        toast.success("Mídia recuperada");
+      } else {
+        toast.warning("Mídia não disponível");
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao reprocessar mídia");
+    } finally {
+      setReprocessingId(null);
+    }
+  };
+
+  const handleTranscribe = async (messageId: string) => {
+    setTranscribingId(messageId);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "crm-transcribe-audio",
+        { body: { message_id: messageId } },
+      );
+      if (error) throw error;
+      const transcription = (data as any)?.transcription ?? "";
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, transcription } : m)),
+      );
+      if (!transcription) toast.warning("Transcrição vazia");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao transcrever");
+    } finally {
+      setTranscribingId(null);
+    }
+  };
+
   const handleImportHistory = async () => {
     if (!contactId || importing) return;
     setImporting(true);
@@ -559,7 +756,27 @@ export default function CRMContato() {
                       />
                     )}
                     {mediaUrl && mediaType === "audio" && (
-                      <audio src={mediaUrl} controls className="mb-1 w-full" />
+                      <div className="mb-1 space-y-1">
+                        <audio src={mediaUrl} controls className="w-full" />
+                        <button
+                          type="button"
+                          onClick={() => handleTranscribe(m.id)}
+                          disabled={transcribingId === m.id || !!m.transcription}
+                          className={`text-[11px] inline-flex items-center gap-1 underline ${enviada ? "text-white/90" : "text-primary"} disabled:opacity-60`}
+                        >
+                          <FileText className="h-3 w-3" />
+                          {m.transcription
+                            ? "Transcrito"
+                            : transcribingId === m.id
+                            ? "Transcrevendo..."
+                            : "Transcrever áudio"}
+                        </button>
+                        {m.transcription && (
+                          <p className={`text-xs italic whitespace-pre-wrap ${enviada ? "text-white/90" : "text-muted-foreground"}`}>
+                            "{m.transcription}"
+                          </p>
+                        )}
+                      </div>
                     )}
                     {mediaUrl && mediaType === "document" && (
                       <a
@@ -574,14 +791,38 @@ export default function CRMContato() {
                       </a>
                     )}
                     {mediaType && !mediaUrl && (
-                      <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
-                        [{mediaType}] mídia indisponível
-                      </p>
+                      <div className="mb-1 space-y-1">
+                        <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
+                          [{mediaType}] mídia indisponível
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleReprocessMedia(m.id)}
+                          disabled={reprocessingId === m.id}
+                          className={`text-[11px] inline-flex items-center gap-1 underline ${enviada ? "text-white/90" : "text-primary"} disabled:opacity-60`}
+                        >
+                          <RefreshCw className={`h-3 w-3 ${reprocessingId === m.id ? "animate-spin" : ""}`} />
+                          {reprocessingId === m.id ? "Buscando..." : "Recuperar mídia"}
+                        </button>
+                      </div>
                     )}
                     {legacyMedia && (
-                      <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
-                        [mídia antiga não armazenada]
-                      </p>
+                      <div className="mb-1 space-y-1">
+                        <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
+                          [mídia antiga não armazenada]
+                        </p>
+                        {m.evolution_message_id && (
+                          <button
+                            type="button"
+                            onClick={() => handleReprocessMedia(m.id)}
+                            disabled={reprocessingId === m.id}
+                            className={`text-[11px] inline-flex items-center gap-1 underline ${enviada ? "text-white/90" : "text-primary"} disabled:opacity-60`}
+                          >
+                            <RefreshCw className={`h-3 w-3 ${reprocessingId === m.id ? "animate-spin" : ""}`} />
+                            {reprocessingId === m.id ? "Buscando..." : "Recuperar mídia"}
+                          </button>
+                        )}
+                      </div>
                     )}
                     {textBody && !legacyMedia && (
                       <p className="whitespace-pre-wrap text-sm leading-relaxed">
@@ -603,32 +844,78 @@ export default function CRMContato() {
         </div>
 
         <div className="border-t bg-card p-3 md:p-4">
-          <div className="flex items-end gap-2">
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Digite uma mensagem..."
-              rows={1}
-              className="resize-none min-h-[40px] max-h-40"
-            />
-            <Button
-              onClick={handleSend}
-              disabled={sending || !draft.trim()}
-              className="shrink-0"
-            >
-              <Send className="h-4 w-4 mr-2" />
-              {sending ? "Enviando..." : "Enviar"}
-            </Button>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1.5">
-            Ctrl+Enter para enviar
-          </p>
+          {recording ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => stopRecording(true)}
+                className="shrink-0 text-destructive"
+                aria-label="Cancelar gravação"
+              >
+                <Trash2 className="h-5 w-5" />
+              </Button>
+              <div className="flex-1 flex items-center gap-2 rounded-md bg-muted px-3 py-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-sm font-mono">
+                  {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:
+                  {String(recordingSeconds % 60).padStart(2, "0")}
+                </span>
+                <span className="text-xs text-muted-foreground ml-2">Gravando áudio...</span>
+              </div>
+              <Button
+                onClick={() => stopRecording(false)}
+                className="shrink-0"
+                aria-label="Enviar áudio"
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Enviar
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end gap-2">
+                <Textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Digite uma mensagem..."
+                  rows={1}
+                  className="resize-none min-h-[40px] max-h-40"
+                  disabled={sendingAudio}
+                />
+                {draft.trim() ? (
+                  <Button
+                    onClick={handleSend}
+                    disabled={sending || !draft.trim()}
+                    className="shrink-0"
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    {sending ? "Enviando..." : "Enviar"}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={startRecording}
+                    disabled={sendingAudio}
+                    variant="secondary"
+                    size="icon"
+                    className="shrink-0 h-10 w-10"
+                    aria-label="Gravar áudio"
+                  >
+                    <Mic className="h-5 w-5" />
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                {sendingAudio ? "Enviando áudio..." : "Ctrl+Enter para enviar · Toque no microfone para gravar"}
+              </p>
+            </>
+          )}
         </div>
       </section>
     </div>

@@ -6,11 +6,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { telefone, mensagem, contact_id } = await req.json();
+    const { telefone, mensagem, contact_id, audio_base64 } = await req.json();
 
-    if (!telefone || !mensagem) {
+    if (!telefone || (!mensagem && !audio_base64)) {
       return new Response(
-        JSON.stringify({ error: "telefone e mensagem são obrigatórios" }),
+        JSON.stringify({ error: "telefone e mensagem/audio são obrigatórios" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -26,18 +26,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    const url = `${evolutionUrl}/message/sendText/${instance}`;
+    const number = String(telefone).replace(/\D/g, "");
+    const baseUrl = evolutionUrl.replace(/\/$/, "");
+
+    let url: string;
+    let body: Record<string, unknown>;
+    if (audio_base64) {
+      url = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
+      body = { number, audio: audio_base64, encoding: true };
+    } else {
+      url = `${baseUrl}/message/sendText/${instance}`;
+      body = { number, text: mensagem };
+    }
 
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": apiKey,
-      },
-      body: JSON.stringify({
-        number: String(telefone).replace(/\D/g, ""),
-        text: mensagem,
-      }),
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify(body),
     });
 
     const result = await response.json();

@@ -180,6 +180,7 @@ export type Database = {
           media_mime: string | null
           media_type: string | null
           media_url: string | null
+          transcription: string | null
         }
         Insert: {
           caption?: string | null
@@ -193,6 +194,7 @@ export type Database = {
           media_mime?: string | null
           media_type?: string | null
           media_url?: string | null
+          transcription?: string | null
         }
         Update: {
           caption?: string | null
@@ -206,6 +208,7 @@ export type Database = {
           media_mime?: string | null
           media_type?: string | null
           media_url?: string | null
+          transcription?: string | null
         }
         Relationships: [
           {

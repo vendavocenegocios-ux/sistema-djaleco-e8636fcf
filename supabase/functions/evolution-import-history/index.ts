@@ -58,30 +58,53 @@ Deno.serve(async (req) => {
     }
 
     const telDigits = String(contato.telefone).replace(/\D/g, "");
-    const remoteJid = `${telDigits}@s.whatsapp.net`;
-
     const url = `${evolutionUrl.replace(/\/$/, "")}/chat/findMessages/${instance}`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: apiKey },
-      body: JSON.stringify({ where: { key: { remoteJid } } }),
-    });
 
-    if (!resp.ok) {
-      const txt = await resp.text();
-      return new Response(
-        JSON.stringify({ error: `Evolution API ${resp.status}: ${txt}` }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    const jidCandidates = [
+      `${telDigits}@s.whatsapp.net`,
+      `${telDigits}@c.us`,
+    ];
+
+    const debug: Record<string, unknown> = { url, telDigits, attempts: [] };
+    let records: any[] = [];
+    let usedJid = jidCandidates[0];
+    let lastStatus = 0;
+    let lastSample: any = null;
+
+    for (const remoteJid of jidCandidates) {
+      console.log("[import-history] tentando", { url, remoteJid });
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: apiKey },
+        body: JSON.stringify({ where: { key: { remoteJid } } }),
+      });
+      lastStatus = resp.status;
+      const text = await resp.text();
+      let json: any = null;
+      try { json = JSON.parse(text); } catch { /* not json */ }
+
+      const found: any[] =
+        json?.messages?.records ||
+        json?.records ||
+        json?.data ||
+        (Array.isArray(json) ? json : []) ||
+        [];
+
+      const topKeys = json && typeof json === "object" ? Object.keys(json).slice(0, 10) : [];
+      lastSample = { topKeys, snippet: text.slice(0, 300) };
+      (debug.attempts as any[]).push({ remoteJid, status: resp.status, count: found.length, topKeys });
+      console.log("[import-history] resposta", { remoteJid, status: resp.status, count: found.length, topKeys });
+
+      if (found.length > 0) {
+        records = found;
+        usedJid = remoteJid;
+        break;
+      }
     }
 
-    const json = await resp.json();
-    // Evolution v2 returns { messages: { records: [...] } } or array
-    const records: any[] =
-      json?.messages?.records ||
-      json?.records ||
-      (Array.isArray(json) ? json : []) ||
-      [];
+    debug.usedJid = usedJid;
+    debug.lastStatus = lastStatus;
+    debug.sample = lastSample;
 
     let imported = 0;
     for (const m of records) {
@@ -115,7 +138,7 @@ Deno.serve(async (req) => {
       .eq("id", contato.id);
 
     return new Response(
-      JSON.stringify({ success: true, imported, total: records.length }),
+      JSON.stringify({ success: true, imported, total: records.length, debug }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

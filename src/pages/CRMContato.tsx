@@ -265,11 +265,22 @@ export default function CRMContato() {
       );
       if (error) throw error;
       const imported = (data as any)?.imported ?? 0;
-      toast.success(
-        imported > 0
-          ? `${imported} mensagem(ns) importada(s)`
-          : "Nenhuma mensagem nova encontrada",
-      );
+      const debug = (data as any)?.debug;
+      if (imported > 0) {
+        toast.success(`${imported} mensagem(ns) importada(s)`);
+      } else {
+        const attempts = debug?.attempts as any[] | undefined;
+        const desc = attempts?.length
+          ? attempts
+              .map((a) => `${a.remoteJid}: status ${a.status}, ${a.count} msgs`)
+              .join(" | ")
+          : "Sem dados de debug";
+        toast.warning("Nenhuma mensagem encontrada na Evolution", {
+          description: desc,
+          duration: 10000,
+        });
+        console.log("[import-history] debug:", debug);
+      }
       // Refetch
       const { data: msgs } = await supabase
         .from("crm_messages")

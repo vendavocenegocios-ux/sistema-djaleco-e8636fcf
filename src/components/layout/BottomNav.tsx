@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingBag, Factory, Package, Users, DollarSign, MoreHorizontal, ShoppingCart, BarChart3 } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Factory, Package, Users, DollarSign, MoreHorizontal, ShoppingCart, BarChart3, MessageSquare } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -16,6 +16,7 @@ const mainItems = [
 
 const moreItems = [
   { title: "Clientes", url: "/clientes", icon: Users },
+  { title: "CRM", url: "/crm", icon: MessageSquare },
   { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart },
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
   { title: "Relatórios", url: "/relatorios", icon: BarChart3 },

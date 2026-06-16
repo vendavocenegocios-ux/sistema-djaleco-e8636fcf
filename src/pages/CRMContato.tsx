@@ -88,6 +88,17 @@ export default function CRMContato() {
   const [messages, setMessages] = useState<any[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Audio recording
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordCancelledRef = useRef(false);
+  const [sendingAudio, setSendingAudio] = useState(false);
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+
   const { data: contato, isLoading } = useQuery({
     queryKey: ["crm_contact", contactId],
     queryFn: async () => {

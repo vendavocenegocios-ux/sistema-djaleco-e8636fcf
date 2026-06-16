@@ -9,6 +9,14 @@ const corsHeaders = {
 const NUVEMSHOP_API = "https://api.tiendanube.com/v1";
 const WILLIAM_VENDEDOR_ID = "97f16c11-121d-47d3-9212-ece04cbcb348";
 
+function classifyTracking(raw: string | null | undefined): { rastreio_codigo: string | null; superfrete_order_id: string | null } {
+  const trimmed = raw?.toString().trim();
+  if (!trimmed) return { rastreio_codigo: null, superfrete_order_id: null };
+  if (/^[a-f0-9]{32}$/i.test(trimmed)) return { rastreio_codigo: null, superfrete_order_id: trimmed.toLowerCase() };
+  if (/^[A-Z]{2}\d{9}[A-Z]{2}$/i.test(trimmed)) return { rastreio_codigo: trimmed.toUpperCase(), superfrete_order_id: null };
+  return { rastreio_codigo: null, superfrete_order_id: null };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -89,7 +97,8 @@ Deno.serve(async (req) => {
     const valorBruto = parseFloat(order.total) || 0;
     const frete = parseFloat(order.shipping_cost_customer) || parseFloat(order.shipping_cost_owner) || 0;
     const taxaPagarme = parseFloat(order.gateway_fee) || 0;
-    const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
+    const rawTracking = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
+    const { rastreio_codigo: rastreioCodigo, superfrete_order_id: superfreteOrderId } = classifyTracking(rawTracking);
 
     // Fetch William's commission rate
     const { data: williamData } = await supabase
@@ -121,6 +130,7 @@ Deno.serve(async (req) => {
       taxa_pagarme: taxaPagarme,
       valor_liquido: valorBruto - frete - taxaPagarme,
       rastreio_codigo: rastreioCodigo,
+      superfrete_order_id: superfreteOrderId,
       etapa_producao: etapa,
       vendedor_id: WILLIAM_VENDEDOR_ID,
       comissao,
@@ -146,6 +156,7 @@ Deno.serve(async (req) => {
         valor_bruto: pedidoData.valor_bruto,
         frete: pedidoData.frete,
         rastreio_codigo: pedidoData.rastreio_codigo,
+        superfrete_order_id: pedidoData.superfrete_order_id,
         etapa_producao: pedidoData.etapa_producao,
       };
       // Never overwrite paid commission. Otherwise also skip — pagarme-fees-sync owns it.

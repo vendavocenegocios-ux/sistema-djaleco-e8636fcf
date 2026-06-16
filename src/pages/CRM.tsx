@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -82,6 +83,9 @@ type Contato = {
   last_message_preview?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  avatar_url?: string | null;
+  push_name?: string | null;
+  is_customer?: boolean;
 };
 
 function ContactCard({
@@ -93,6 +97,13 @@ function ContactCard({
 }) {
   const unread = (c.unread_count ?? 0) > 0;
   const lastDate = c.last_message_at ?? c.updated_at ?? c.created_at;
+  const displayName = c.nome || c.push_name || c.telefone || "—";
+  const initials = (displayName || "?")
+    .split(/\s+/)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
   return (
     <Card
       onClick={onClick}
@@ -103,12 +114,16 @@ function ContactCard({
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           {unread && (
             <span className="h-2 w-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
           )}
+          <Avatar className="h-8 w-8 shrink-0">
+            {c.avatar_url ? <AvatarImage src={c.avatar_url} alt={displayName} /> : null}
+            <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+          </Avatar>
           <span className="font-medium text-sm truncate">
-            {c.nome || c.telefone}
+            {displayName}
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -117,6 +132,16 @@ function ContactCard({
               {c.unread_count}
             </Badge>
           )}
+          <Badge
+            variant="outline"
+            className={`text-[10px] ${
+              c.is_customer
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                : "bg-slate-500/10 text-slate-600 dark:text-slate-300 border-slate-500/20"
+            }`}
+          >
+            {c.is_customer ? "Cliente" : "Lead"}
+          </Badge>
           <Badge
             variant="outline"
             className={`text-[10px] ${
@@ -214,12 +239,25 @@ export default function CRM() {
   const { data: contatos, isLoading } = useQuery<Contato[]>({
     queryKey: ["crm_contacts_kanban"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("crm_contacts")
-        .select("*")
-        .order("last_message_at", { ascending: false, nullsFirst: false });
+      const [{ data, error }, { data: clientes }] = await Promise.all([
+        supabase
+          .from("crm_contacts")
+          .select("*")
+          .order("last_message_at", { ascending: false, nullsFirst: false }),
+        supabase.from("clientes").select("telefone"),
+      ]);
       if (error) throw error;
-      return (data ?? []) as Contato[];
+      const customerSuffixes = new Set(
+        (clientes ?? [])
+          .map((c: any) => String(c.telefone ?? "").replace(/\D/g, "").slice(-8))
+          .filter(Boolean),
+      );
+      return ((data ?? []) as Contato[]).map((c) => ({
+        ...c,
+        is_customer: customerSuffixes.has(
+          String(c.telefone ?? "").replace(/\D/g, "").slice(-8),
+        ),
+      }));
     },
   });
 

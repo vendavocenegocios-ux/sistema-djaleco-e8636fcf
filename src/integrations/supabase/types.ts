@@ -118,6 +118,7 @@ export type Database = {
       }
       crm_contacts: {
         Row: {
+          avatar_url: string | null
           created_at: string | null
           direcao: string | null
           email: string | null
@@ -127,6 +128,7 @@ export type Database = {
           nome: string
           notas: string | null
           origem: string | null
+          push_name: string | null
           status: string | null
           tags: string[] | null
           telefone: string
@@ -134,6 +136,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string | null
           direcao?: string | null
           email?: string | null
@@ -143,6 +146,7 @@ export type Database = {
           nome: string
           notas?: string | null
           origem?: string | null
+          push_name?: string | null
           status?: string | null
           tags?: string[] | null
           telefone: string
@@ -150,6 +154,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string | null
           direcao?: string | null
           email?: string | null
@@ -159,6 +164,7 @@ export type Database = {
           nome?: string
           notas?: string | null
           origem?: string | null
+          push_name?: string | null
           status?: string | null
           tags?: string[] | null
           telefone?: string
@@ -173,6 +179,7 @@ export type Database = {
           contact_id: string
           conteudo: string | null
           created_at: string
+          deleted_at: string | null
           direcao: string
           evolution_message_id: string | null
           id: string
@@ -187,6 +194,7 @@ export type Database = {
           contact_id: string
           conteudo?: string | null
           created_at?: string
+          deleted_at?: string | null
           direcao?: string
           evolution_message_id?: string | null
           id?: string
@@ -201,6 +209,7 @@ export type Database = {
           contact_id?: string
           conteudo?: string | null
           created_at?: string
+          deleted_at?: string | null
           direcao?: string
           evolution_message_id?: string | null
           id?: string

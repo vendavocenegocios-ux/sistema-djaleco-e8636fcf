@@ -6,6 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { PedidoQuickViewDialog } from "@/components/crm/PedidoQuickViewDialog";
+import { useContactCustomerInfo } from "@/hooks/useContactCustomerInfo";
 import {
   Select,
   SelectContent,
@@ -33,6 +52,9 @@ import {
   Trash2,
   FileText,
   RefreshCw,
+  MoreVertical,
+  UserCheck,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -98,6 +120,9 @@ export default function CRMContato() {
   const [sendingAudio, setSendingAudio] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+  const [refreshingProfile, setRefreshingProfile] = useState(false);
+  const [pedidoModalId, setPedidoModalId] = useState<string | null>(null);
+  const [deleteMsgId, setDeleteMsgId] = useState<string | null>(null);
 
   const { data: contato, isLoading } = useQuery({
     queryKey: ["crm_contact", contactId],
@@ -119,7 +144,9 @@ export default function CRMContato() {
   }, [contato?.id]);
 
   const updateContact = useMutation({
-    mutationFn: async (patch: Partial<{ nome: string; status: string; notas: string }>) => {
+    mutationFn: async (
+      patch: Partial<{ nome: string; status: string; notas: string }>,
+    ) => {
       const { error } = await supabase
         .from("crm_contacts")
         .update(patch)
@@ -133,6 +160,7 @@ export default function CRMContato() {
   });
 
   const tel = onlyDigits(contato?.telefone);
+  const { data: customerInfo } = useContactCustomerInfo(contato?.telefone);
   const { data: pedidos } = useQuery({
     queryKey: ["crm_contact_pedidos", contactId, tel],
     enabled: !!contato && !!tel,
@@ -158,6 +186,7 @@ export default function CRMContato() {
         .from("crm_messages")
         .select("*")
         .eq("contact_id", contactId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: true });
       if (error) {
         console.error("Erro ao buscar mensagens:", error);
@@ -483,12 +512,47 @@ export default function CRMContato() {
         .from("crm_messages")
         .select("*")
         .eq("contact_id", contactId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: true });
       setMessages(msgs ?? []);
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao importar histórico");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleRefreshProfile = async () => {
+    if (!contactId || refreshingProfile) return;
+    setRefreshingProfile(true);
+    try {
+      const { error } = await supabase.functions.invoke(
+        "crm-refresh-contact-profile",
+        { body: { contact_id: contactId } },
+      );
+      if (error) throw error;
+      toast.success("Dados atualizados");
+      qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao atualizar perfil");
+    } finally {
+      setRefreshingProfile(false);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      const { error } = await supabase
+        .from("crm_messages")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", messageId);
+      if (error) throw error;
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      toast.success("Mensagem apagada");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao apagar mensagem");
+    } finally {
+      setDeleteMsgId(null);
     }
   };
 
@@ -516,6 +580,10 @@ export default function CRMContato() {
   const initials = initialsOf(contato.nome, contato.telefone ?? "?");
   const displayName = contato.nome || contato.telefone || "Sem nome";
   const origem = contato.origem ?? "outro";
+  const pushName = (contato as any).push_name as string | null;
+  const avatarUrl = (contato as any).avatar_url as string | null;
+  const isCustomer = !!customerInfo?.isCustomer;
+  const cliente = customerInfo?.cliente;
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] overflow-hidden">
@@ -529,9 +597,12 @@ export default function CRMContato() {
           </Button>
 
           <div className="flex flex-col items-center text-center gap-3 pb-4 border-b">
-            <div className="h-20 w-20 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-2xl">
-              {initials}
-            </div>
+            <Avatar className="h-20 w-20">
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
+              <AvatarFallback className="bg-primary/10 text-primary font-semibold text-2xl">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
 
             {editingName ? (
               <div className="flex items-center gap-1 w-full">
@@ -581,10 +652,67 @@ export default function CRMContato() {
               </button>
             )}
 
+            {pushName && !contato.nome && (
+              <button
+                type="button"
+                onClick={() =>
+                  updateContact.mutate(
+                    { nome: pushName },
+                    { onSuccess: () => toast.success("Nome salvo") },
+                  )
+                }
+                className="text-xs inline-flex items-center gap-1.5 text-primary hover:underline"
+              >
+                <UserPlus className="h-3 w-3" />
+                Salvar “{pushName}” como nome
+              </button>
+            )}
+
             <p className="text-sm text-muted-foreground">{contato.telefone}</p>
-            <Badge variant="outline" className={ORIGEM_CLASS[origem] ?? ""}>
-              {ORIGEM_LABEL[origem] ?? origem}
-            </Badge>
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <Badge
+                variant="outline"
+                className={
+                  isCustomer
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                    : "bg-slate-100 text-slate-700 border-slate-200"
+                }
+              >
+                {isCustomer ? "Cliente" : "Lead"}
+              </Badge>
+              <Badge variant="outline" className={ORIGEM_CLASS[origem] ?? ""}>
+                {ORIGEM_LABEL[origem] ?? origem}
+              </Badge>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefreshProfile}
+              disabled={refreshingProfile}
+              className="text-xs h-7"
+            >
+              <RefreshCw className={`h-3 w-3 mr-1.5 ${refreshingProfile ? "animate-spin" : ""}`} />
+              Atualizar do WhatsApp
+            </Button>
+
+            {isCustomer && cliente && (
+              <div className="w-full rounded-md border bg-emerald-50 dark:bg-emerald-950/30 text-left text-xs p-2 space-y-0.5">
+                <p className="font-medium inline-flex items-center gap-1.5 text-emerald-900 dark:text-emerald-300">
+                  <UserCheck className="h-3.5 w-3.5" />
+                  Cliente cadastrado
+                </p>
+                <p className="text-muted-foreground">
+                  {cliente.total_pedidos ?? 0} pedido(s) · {currency(Number(cliente.total_gasto ?? 0))}
+                </p>
+                <Link
+                  to={`/clientes/${cliente.id}`}
+                  className="text-primary underline"
+                >
+                  Abrir ficha do cliente
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -633,9 +761,11 @@ export default function CRMContato() {
               ) : (
                 <div className="divide-y">
                   {pedidos.map((p) => (
-                    <div
+                    <button
                       key={p.id}
-                      className="flex items-center justify-between py-2 text-sm"
+                      type="button"
+                      onClick={() => setPedidoModalId(p.id)}
+                      className="w-full flex items-center justify-between py-2 text-sm text-left hover:bg-muted/40 rounded-md px-2 -mx-2 transition-colors"
                     >
                       <div className="flex flex-col min-w-0">
                         <span className="font-medium truncate">#{p.numero_pedido}</span>
@@ -650,7 +780,7 @@ export default function CRMContato() {
                       <span className="font-semibold text-sm">
                         {currency(p.valor_bruto)}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -688,11 +818,27 @@ export default function CRMContato() {
       {/* Right panel */}
       <section className="flex-1 flex flex-col min-w-0 bg-muted/20">
         <header className="px-4 md:px-6 py-3 border-b bg-card flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="font-semibold truncate">{displayName}</h2>
-            <p className="text-xs text-muted-foreground">{contato.telefone}</p>
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar className="h-9 w-9 shrink-0">
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
+              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <h2 className="font-semibold truncate">{displayName}</h2>
+              <p className="text-xs text-muted-foreground">{contato.telefone}</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className={
+                isCustomer
+                  ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                  : "bg-slate-100 text-slate-700 border-slate-200"
+              }
+            >
+              {isCustomer ? "Cliente" : "Lead"}
+            </Badge>
             <Button
               variant="outline"
               size="sm"
@@ -729,10 +875,30 @@ export default function CRMContato() {
               return (
                 <div
                   key={m.id}
-                  className={`flex ${enviada ? "justify-end" : "justify-start"}`}
+                  className={`group/msg flex ${enviada ? "justify-end" : "justify-start"}`}
                 >
+                  {enviada && (
+                    <div className="self-center mr-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteMsgId(m.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                            Apagar mensagem
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                   <div
-                    className={`max-w-[75%] rounded-2xl px-3.5 py-2 shadow-sm ${
+                    className={`relative max-w-[75%] rounded-2xl px-3.5 py-2 shadow-sm ${
                       enviada
                         ? "bg-[#075E54] text-white rounded-br-sm"
                         : "bg-white border rounded-bl-sm"
@@ -837,6 +1003,26 @@ export default function CRMContato() {
                       {format(new Date(m.created_at), "dd/MM HH:mm", { locale: ptBR })}
                     </p>
                   </div>
+                  {!enviada && (
+                    <div className="self-center ml-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteMsgId(m.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                            Apagar mensagem
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -918,6 +1104,36 @@ export default function CRMContato() {
           )}
         </div>
       </section>
+
+      <PedidoQuickViewDialog
+        pedidoId={pedidoModalId}
+        open={!!pedidoModalId}
+        onOpenChange={(v) => !v && setPedidoModalId(null)}
+      />
+
+      <AlertDialog
+        open={!!deleteMsgId}
+        onOpenChange={(v) => !v && setDeleteMsgId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar mensagem?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A mensagem será ocultada do sistema. Esta ação só remove do CRM —
+              não apaga no WhatsApp do destinatário.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMsgId && handleDeleteMessage(deleteMsgId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

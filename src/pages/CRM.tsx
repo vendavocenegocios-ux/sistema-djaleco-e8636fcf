@@ -239,12 +239,25 @@ export default function CRM() {
   const { data: contatos, isLoading } = useQuery<Contato[]>({
     queryKey: ["crm_contacts_kanban"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("crm_contacts")
-        .select("*")
-        .order("last_message_at", { ascending: false, nullsFirst: false });
+      const [{ data, error }, { data: clientes }] = await Promise.all([
+        supabase
+          .from("crm_contacts")
+          .select("*")
+          .order("last_message_at", { ascending: false, nullsFirst: false }),
+        supabase.from("clientes").select("telefone"),
+      ]);
       if (error) throw error;
-      return (data ?? []) as Contato[];
+      const customerSuffixes = new Set(
+        (clientes ?? [])
+          .map((c: any) => String(c.telefone ?? "").replace(/\D/g, "").slice(-8))
+          .filter(Boolean),
+      );
+      return ((data ?? []) as Contato[]).map((c) => ({
+        ...c,
+        is_customer: customerSuffixes.has(
+          String(c.telefone ?? "").replace(/\D/g, "").slice(-8),
+        ),
+      }));
     },
   });
 

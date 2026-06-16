@@ -522,6 +522,13 @@ export default function CRMContato() {
           ) : (
             messages.map((m) => {
               const enviada = m.direcao === "enviada";
+              const mediaType = m.media_type as string | null;
+              const mediaUrl = m.media_url as string | null;
+              const caption = m.caption as string | null;
+              const filename = m.media_filename as string | null;
+              const legacyMedia =
+                !mediaType && m.conteudo === "[mídia]";
+              const textBody = caption || (mediaType ? "" : m.conteudo) || "";
               return (
                 <div
                   key={m.id}
@@ -534,9 +541,53 @@ export default function CRMContato() {
                         : "bg-white border rounded-bl-sm"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {m.conteudo}
-                    </p>
+                    {mediaUrl && (mediaType === "image" || mediaType === "sticker") && (
+                      <a href={mediaUrl} target="_blank" rel="noreferrer" className="block mb-1">
+                        <img
+                          src={mediaUrl}
+                          alt={filename || "imagem"}
+                          loading="lazy"
+                          className="rounded-lg max-h-64 object-cover"
+                        />
+                      </a>
+                    )}
+                    {mediaUrl && mediaType === "video" && (
+                      <video
+                        src={mediaUrl}
+                        controls
+                        className="rounded-lg max-h-64 mb-1"
+                      />
+                    )}
+                    {mediaUrl && mediaType === "audio" && (
+                      <audio src={mediaUrl} controls className="mb-1 w-full" />
+                    )}
+                    {mediaUrl && mediaType === "document" && (
+                      <a
+                        href={mediaUrl}
+                        download={filename || true}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`inline-flex items-center gap-2 underline mb-1 ${enviada ? "text-white" : "text-primary"}`}
+                      >
+                        <Download className="h-4 w-4" />
+                        {filename || "Baixar documento"}
+                      </a>
+                    )}
+                    {mediaType && !mediaUrl && (
+                      <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
+                        [{mediaType}] mídia indisponível
+                      </p>
+                    )}
+                    {legacyMedia && (
+                      <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
+                        [mídia antiga não armazenada]
+                      </p>
+                    )}
+                    {textBody && !legacyMedia && (
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                        {textBody}
+                      </p>
+                    )}
                     <p
                       className={`text-[10px] mt-1 ${
                         enviada ? "text-white/70" : "text-muted-foreground"

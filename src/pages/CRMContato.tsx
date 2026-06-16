@@ -512,12 +512,47 @@ export default function CRMContato() {
         .from("crm_messages")
         .select("*")
         .eq("contact_id", contactId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: true });
       setMessages(msgs ?? []);
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao importar histórico");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleRefreshProfile = async () => {
+    if (!contactId || refreshingProfile) return;
+    setRefreshingProfile(true);
+    try {
+      const { error } = await supabase.functions.invoke(
+        "crm-refresh-contact-profile",
+        { body: { contact_id: contactId } },
+      );
+      if (error) throw error;
+      toast.success("Dados atualizados");
+      qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao atualizar perfil");
+    } finally {
+      setRefreshingProfile(false);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      const { error } = await supabase
+        .from("crm_messages")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", messageId);
+      if (error) throw error;
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      toast.success("Mensagem apagada");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao apagar mensagem");
+    } finally {
+      setDeleteMsgId(null);
     }
   };
 

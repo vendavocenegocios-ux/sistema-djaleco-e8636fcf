@@ -65,38 +65,42 @@ Deno.serve(async (req) => {
     const remoteJid = `${String(contact.telefone).replace(/\D/g, "")}@s.whatsapp.net`;
     const baseUrl = evolutionUrl.replace(/\/$/, "");
 
-    // 1) Fetch the full stored message from Evolution so we pass the real
-    //    message object (with imageMessage/audioMessage/videoMessage/etc.)
-    //    instead of letting Baileys re-resolve from just the key, which can
-    //    misclassify it as a templateMessage.
-    const findResp = await fetch(`${baseUrl}/chat/findMessages/${instance}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: apiKey },
-      body: JSON.stringify({
-        where: { key: { id: msg.evolution_message_id, remoteJid } },
-      }),
-    });
-    if (!findResp.ok) {
-      const t = await findResp.text();
-      return new Response(JSON.stringify({ error: "Falha ao localizar mensagem", detail: t }), {
-        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // 1) Try to locate the full stored message in Evolution. Different
+    //    Evolution API versions accept different `where` shapes, so we try
+    //    a few variants. If none match (older messages may not be persisted
+    //    by the API), we fall back to passing only the key.
+    const whereVariants = [
+      { key: { id: msg.evolution_message_id } },
+      { "key.id": msg.evolution_message_id },
+      { key: { id: msg.evolution_message_id, remoteJid } },
+      { keyId: msg.evolution_message_id },
+    ];
+    let stored: any = null;
+    let lastDetail = "";
+    for (const where of whereVariants) {
+      const r = await fetch(`${baseUrl}/chat/findMessages/${instance}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: apiKey },
+        body: JSON.stringify({ where }),
       });
+      const text = await r.text();
+      lastDetail = text;
+      if (!r.ok) continue;
+      let parsed: any;
+      try { parsed = JSON.parse(text); } catch { continue; }
+      const records = Array.isArray(parsed)
+        ? parsed
+        : parsed?.records || parsed?.messages?.records || parsed?.messages || parsed?.data || [];
+      const first = Array.isArray(records) ? records[0] : records;
+      if (first) { stored = first; break; }
     }
-    const findJson = await findResp.json();
-    const records = Array.isArray(findJson)
-      ? findJson
-      : findJson?.records || findJson?.messages?.records || findJson?.data || [];
-    const stored = Array.isArray(records) ? records[0] : records;
-    if (!stored) {
-      return new Response(JSON.stringify({ error: "Mensagem não encontrada na Evolution" }), {
-        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    console.log("findMessages stored?", !!stored, "lastDetail sample:", lastDetail.slice(0, 200));
 
-    // Evolution stores the original Baileys payload under `message` (jsonb)
-    const fullMessage = stored.message
+    // Build payload for getBase64FromMediaMessage.
+    // Evolution stores the original Baileys payload under `message` (jsonb).
+    const fullMessage = stored?.message
       ? { key: stored.key, message: stored.message, messageType: stored.messageType }
-      : stored;
+      : { key: { id: msg.evolution_message_id, remoteJid, fromMe: msg.direcao === "enviada" } };
 
     const url = `${baseUrl}/chat/getBase64FromMediaMessage/${instance}`;
     const resp = await fetch(url, {

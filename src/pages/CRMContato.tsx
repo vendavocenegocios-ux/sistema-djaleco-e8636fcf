@@ -756,7 +756,28 @@ export default function CRMContato() {
                       />
                     )}
                     {mediaUrl && mediaType === "audio" && (
-                      <audio src={mediaUrl} controls className="mb-1 w-full" />
+                      <div className="mb-1 space-y-1">
+                        <audio src={mediaUrl} controls className="w-full" />
+                        <button
+                          type="button"
+                          onClick={() => handleTranscribe(m.id)}
+                          disabled={transcribingId === m.id || !!m.transcription}
+                          className={`text-[11px] inline-flex items-center gap-1 underline ${enviada ? "text-white/90" : "text-primary"} disabled:opacity-60`}
+                        >
+                          <FileText className="h-3 w-3" />
+                          {m.transcription
+                            ? "Transcrito"
+                            : transcribingId === m.id
+                            ? "Transcrevendo..."
+                            : "Transcrever áudio"}
+                        </button>
+                        {m.transcription && (
+                          <p className={`text-xs italic whitespace-pre-wrap ${enviada ? "text-white/90" : "text-muted-foreground"}`}>
+                            "{m.transcription}"
+                          </p>
+                        )}
+                      </div>
+                    )}
                     )}
                     {mediaUrl && mediaType === "document" && (
                       <a
@@ -771,14 +792,38 @@ export default function CRMContato() {
                       </a>
                     )}
                     {mediaType && !mediaUrl && (
-                      <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
-                        [{mediaType}] mídia indisponível
-                      </p>
+                      <div className="mb-1 space-y-1">
+                        <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
+                          [{mediaType}] mídia indisponível
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleReprocessMedia(m.id)}
+                          disabled={reprocessingId === m.id}
+                          className={`text-[11px] inline-flex items-center gap-1 underline ${enviada ? "text-white/90" : "text-primary"} disabled:opacity-60`}
+                        >
+                          <RefreshCw className={`h-3 w-3 ${reprocessingId === m.id ? "animate-spin" : ""}`} />
+                          {reprocessingId === m.id ? "Buscando..." : "Recuperar mídia"}
+                        </button>
+                      </div>
                     )}
                     {legacyMedia && (
-                      <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
-                        [mídia antiga não armazenada]
-                      </p>
+                      <div className="mb-1 space-y-1">
+                        <p className={`text-xs italic ${enviada ? "text-white/80" : "text-muted-foreground"}`}>
+                          [mídia antiga não armazenada]
+                        </p>
+                        {m.evolution_message_id && (
+                          <button
+                            type="button"
+                            onClick={() => handleReprocessMedia(m.id)}
+                            disabled={reprocessingId === m.id}
+                            className={`text-[11px] inline-flex items-center gap-1 underline ${enviada ? "text-white/90" : "text-primary"} disabled:opacity-60`}
+                          >
+                            <RefreshCw className={`h-3 w-3 ${reprocessingId === m.id ? "animate-spin" : ""}`} />
+                            {reprocessingId === m.id ? "Buscando..." : "Recuperar mídia"}
+                          </button>
+                        )}
+                      </div>
                     )}
                     {textBody && !legacyMedia && (
                       <p className="whitespace-pre-wrap text-sm leading-relaxed">
@@ -800,32 +845,78 @@ export default function CRMContato() {
         </div>
 
         <div className="border-t bg-card p-3 md:p-4">
-          <div className="flex items-end gap-2">
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Digite uma mensagem..."
-              rows={1}
-              className="resize-none min-h-[40px] max-h-40"
-            />
-            <Button
-              onClick={handleSend}
-              disabled={sending || !draft.trim()}
-              className="shrink-0"
-            >
-              <Send className="h-4 w-4 mr-2" />
-              {sending ? "Enviando..." : "Enviar"}
-            </Button>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1.5">
-            Ctrl+Enter para enviar
-          </p>
+          {recording ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => stopRecording(true)}
+                className="shrink-0 text-destructive"
+                aria-label="Cancelar gravação"
+              >
+                <Trash2 className="h-5 w-5" />
+              </Button>
+              <div className="flex-1 flex items-center gap-2 rounded-md bg-muted px-3 py-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-sm font-mono">
+                  {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:
+                  {String(recordingSeconds % 60).padStart(2, "0")}
+                </span>
+                <span className="text-xs text-muted-foreground ml-2">Gravando áudio...</span>
+              </div>
+              <Button
+                onClick={() => stopRecording(false)}
+                className="shrink-0"
+                aria-label="Enviar áudio"
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Enviar
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end gap-2">
+                <Textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Digite uma mensagem..."
+                  rows={1}
+                  className="resize-none min-h-[40px] max-h-40"
+                  disabled={sendingAudio}
+                />
+                {draft.trim() ? (
+                  <Button
+                    onClick={handleSend}
+                    disabled={sending || !draft.trim()}
+                    className="shrink-0"
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    {sending ? "Enviando..." : "Enviar"}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={startRecording}
+                    disabled={sendingAudio}
+                    variant="secondary"
+                    size="icon"
+                    className="shrink-0 h-10 w-10"
+                    aria-label="Gravar áudio"
+                  >
+                    <Mic className="h-5 w-5" />
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                {sendingAudio ? "Enviando áudio..." : "Ctrl+Enter para enviar · Toque no microfone para gravar"}
+              </p>
+            </>
+          )}
         </div>
       </section>
     </div>

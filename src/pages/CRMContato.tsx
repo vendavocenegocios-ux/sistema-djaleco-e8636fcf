@@ -6,6 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { PedidoQuickViewDialog } from "@/components/crm/PedidoQuickViewDialog";
+import { useContactCustomerInfo } from "@/hooks/useContactCustomerInfo";
 import {
   Select,
   SelectContent,
@@ -33,6 +52,9 @@ import {
   Trash2,
   FileText,
   RefreshCw,
+  MoreVertical,
+  UserCheck,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -98,6 +120,9 @@ export default function CRMContato() {
   const [sendingAudio, setSendingAudio] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+  const [refreshingProfile, setRefreshingProfile] = useState(false);
+  const [pedidoModalId, setPedidoModalId] = useState<string | null>(null);
+  const [deleteMsgId, setDeleteMsgId] = useState<string | null>(null);
 
   const { data: contato, isLoading } = useQuery({
     queryKey: ["crm_contact", contactId],
@@ -119,7 +144,9 @@ export default function CRMContato() {
   }, [contato?.id]);
 
   const updateContact = useMutation({
-    mutationFn: async (patch: Partial<{ nome: string; status: string; notas: string }>) => {
+    mutationFn: async (
+      patch: Partial<{ nome: string; status: string; notas: string }>,
+    ) => {
       const { error } = await supabase
         .from("crm_contacts")
         .update(patch)
@@ -133,6 +160,7 @@ export default function CRMContato() {
   });
 
   const tel = onlyDigits(contato?.telefone);
+  const { data: customerInfo } = useContactCustomerInfo(contato?.telefone);
   const { data: pedidos } = useQuery({
     queryKey: ["crm_contact_pedidos", contactId, tel],
     enabled: !!contato && !!tel,
@@ -158,6 +186,7 @@ export default function CRMContato() {
         .from("crm_messages")
         .select("*")
         .eq("contact_id", contactId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: true });
       if (error) {
         console.error("Erro ao buscar mensagens:", error);

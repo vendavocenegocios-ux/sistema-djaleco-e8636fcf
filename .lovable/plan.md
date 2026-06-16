@@ -1,58 +1,41 @@
-# Por que nada apareceu
+## Diagnóstico
 
-Investiguei os logs e o banco. Há dois problemas distintos:
+A SuperFrete está autenticando, mas **nunca é chamada** porque `superfrete_order_id` está vazio em todos os pedidos. O campo `shipping_tracking_number` que vem do Nuvemshop está sendo gravado sempre em `rastreio_codigo`, mesmo quando o conteúdo é, na verdade, um ID interno da SuperFrete (hash hex de 32 caracteres) — e em casos antigos veio até um e-mail.
 
-## 1. Mensagem que você digitou não entrou (webhook quebrado)
+Diagnóstico dos 25 registros com rastreio:
+- 2 são hashes hex de 32 chars (pedidos 427, 428) → na verdade são `superfrete_order_id`
+- 1 tem espaço sobrando no final (pedido 431)
+- 1 é um e-mail (pedido 152) → lixo
+- 21 são códigos válidos dos Correios (formato `XX000000000BR`)
 
-Log do `evolution-webhook`:
+## Correção em duas frentes
 
+### 1. Corrigir os dados existentes (data fix)
+- Para cada pedido com `rastreio_codigo` de exatamente 32 caracteres hex (`^[a-f0-9]{32}$`): mover o valor para `superfrete_order_id` e zerar `rastreio_codigo`.
+- Aparar espaços (`trim`) em todos os `rastreio_codigo`.
+- Limpar `rastreio_codigo` quando o conteúdo for inválido (e-mail ou qualquer string que não case com o formato Correios `^[A-Z]{2}\d{9}[A-Z]{2}$` nem com hash hex de 32). Pedido 152 ficará sem rastreio.
+
+### 2. Corrigir a sync e o webhook do Nuvemshop
+Adicionar uma função utilitária `classifyTracking(raw)` em `nuvemshop-sync/index.ts` e `nuvemshop-webhook/index.ts` que devolve `{ rastreio_codigo, superfrete_order_id }` aplicando as mesmas regras de classificação acima. Trocar todos os pontos onde hoje se faz `rastreio_codigo: rastreioCodigo` por esse par de campos, tanto no INSERT quanto no UPDATE. Resultado: daqui em diante, IDs internos da SuperFrete vão para o campo certo e a edge function `superfrete-tracking` passa a conseguir consultar a API.
+
+### Fora de escopo desta correção
+- Investigar por que o Seu Rastreio devolveu 403 no nosso teste — pode ser bloqueio Cloudflare só do sandbox. Vou validar olhando os logs reais da edge function `superfrete-tracking` depois que ela voltar a ser chamada.
+- Não vou rodar a `superfrete-tracking` em lote agora; com os campos corrigidos, basta clicar em "Rastrear" em qualquer pedido para validar.
+
+## Detalhes técnicos
+
+Regras de classificação:
 ```
-ERROR [webhook] insert error:
-  code: 42P10
-  message: there is no unique or exclusion constraint matching the ON CONFLICT specification
-```
-
-A migration criou um índice único **parcial** (`WHERE evolution_message_id IS NOT NULL`). O Postgres exige que o `ON CONFLICT (evolution_message_id)` aponte para uma constraint/índice único *não parcial* (ou que o predicado seja inferível, o que o PostgREST não faz). Resultado: **toda mensagem nova falha ao salvar**, inclusive a que você enviou pelo celular.
-
-## 2. "Importar histórico" não trouxe nada
-
-A função executou sem erro (logs limpos) e respondeu — mas provavelmente o array `records` veio vazio. Possíveis causas:
-
-- Formato de resposta da Evolution diferente do esperado (`messages.records` vs outro caminho).
-- `remoteJid` montado errado (telefone armazenado com/sem DDI, máscara, etc.).
-- Endpoint `/chat/findMessages/{instance}` pode exigir body diferente nesta versão da Evolution.
-
-Hoje a função não loga nada disso, então estamos no escuro.
-
-# Plano
-
-## Passo 1 — Migration: corrigir a unicidade
-- Dropar o índice parcial `crm_messages_evolution_message_id_key`.
-- Criar uma constraint UNIQUE real em `crm_messages.evolution_message_id` (Postgres aceita múltiplos NULLs em UNIQUE, então mensagens manuais sem id continuam funcionando).
-
-Isto sozinho já resolve o problema 1: novas mensagens recebidas/enviadas voltam a aparecer no grid e na conversa.
-
-## Passo 2 — `evolution-import-history`: instrumentar e tolerar variações
-- Logar: URL chamada, status, `remoteJid` usado, primeiras chaves do JSON e quantidade de `records` encontrados.
-- Tentar mais caminhos no payload: `json.messages.records`, `json.records`, `json.data`, `json` (array direto).
-- Se vier vazio com `@s.whatsapp.net`, tentar fallback com `@c.us`.
-- Retornar no JSON de resposta `debug: { remoteJid, status, sample }` para o frontend mostrar no toast quando `imported = 0`.
-
-## Passo 3 — Frontend (`CRMContato.tsx`)
-- No clique de "Importar histórico", quando `imported = 0`, exibir toast com a info de debug (telefone usado, status da API) para facilitar diagnóstico.
-
-## Passo 4 — Validar
-- Reenviar uma mensagem pelo celular → deve aparecer no chat e o card ficar verde no `/crm`.
-- Clicar em "Importar histórico" → checar logs e ver o que a Evolution está devolvendo; ajustar parser se necessário.
-
-# Detalhes técnicos
-
-Migration:
-```sql
-DROP INDEX IF EXISTS public.crm_messages_evolution_message_id_key;
-ALTER TABLE public.crm_messages
-  ADD CONSTRAINT crm_messages_evolution_message_id_key
-  UNIQUE (evolution_message_id);
+trimmed = raw?.trim() || null
+if (!trimmed) → ambos null
+if (/^[a-f0-9]{32}$/i.test(trimmed)) → superfrete_order_id = trimmed
+else if (/^[A-Z]{2}\d{9}[A-Z]{2}$/i.test(trimmed)) → rastreio_codigo = trimmed.toUpperCase()
+else → ambos null (não confiar em conteúdo desconhecido)
 ```
 
-Nada de schema novo além disso; o resto é código de edge function + um toast no frontend.
+Arquivos alterados:
+- `supabase/functions/nuvemshop-sync/index.ts` — usar `classifyTracking` em insert e update
+- `supabase/functions/nuvemshop-webhook/index.ts` — idem
+- Data fix via `supabase--insert` (UPDATE em `pedidos`) — sem migração de schema, apenas dados
+
+Sem mudanças em UI, sem mudanças no schema do banco.

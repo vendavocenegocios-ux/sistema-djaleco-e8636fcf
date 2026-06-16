@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, MessageSquare, Phone } from "lucide-react";
+import { Plus, MessageSquare, Phone, ArrowLeft } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -317,6 +317,9 @@ export default function CRM() {
     <div className="p-4 md:p-6 space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate("/")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <MessageSquare className="h-5 w-5 text-primary" />
           <h1 className="text-2xl font-bold">CRM / WhatsApp</h1>
         </div>

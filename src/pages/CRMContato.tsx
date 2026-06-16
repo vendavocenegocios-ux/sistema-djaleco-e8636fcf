@@ -1104,6 +1104,36 @@ export default function CRMContato() {
           )}
         </div>
       </section>
+
+      <PedidoQuickViewDialog
+        pedidoId={pedidoModalId}
+        open={!!pedidoModalId}
+        onOpenChange={(v) => !v && setPedidoModalId(null)}
+      />
+
+      <AlertDialog
+        open={!!deleteMsgId}
+        onOpenChange={(v) => !v && setDeleteMsgId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar mensagem?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A mensagem será ocultada do sistema. Esta ação só remove do CRM —
+              não apaga no WhatsApp do destinatário.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMsgId && handleDeleteMessage(deleteMsgId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

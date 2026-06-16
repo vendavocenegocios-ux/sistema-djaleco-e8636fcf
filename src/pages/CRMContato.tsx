@@ -231,12 +231,12 @@ export default function CRMContato() {
       const evolutionMessageId =
         (sendResp as any)?.evolution_message_id ?? null;
 
-      const insertPayload: Record<string, unknown> = {
+      const insertPayload = {
         contact_id: contato.id,
         conteudo: text,
         direcao: "enviada",
+        ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
       };
-      if (evolutionMessageId) insertPayload.evolution_message_id = evolutionMessageId;
 
       const { error: insertError } = evolutionMessageId
         ? await supabase

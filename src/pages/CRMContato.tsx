@@ -28,6 +28,11 @@ import {
   Check,
   X,
   Download,
+  Mic,
+  Square,
+  Trash2,
+  FileText,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";

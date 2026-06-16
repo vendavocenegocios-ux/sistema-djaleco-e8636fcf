@@ -761,9 +761,11 @@ export default function CRMContato() {
               ) : (
                 <div className="divide-y">
                   {pedidos.map((p) => (
-                    <div
+                    <button
                       key={p.id}
-                      className="flex items-center justify-between py-2 text-sm"
+                      type="button"
+                      onClick={() => setPedidoModalId(p.id)}
+                      className="w-full flex items-center justify-between py-2 text-sm text-left hover:bg-muted/40 rounded-md px-2 -mx-2 transition-colors"
                     >
                       <div className="flex flex-col min-w-0">
                         <span className="font-medium truncate">#{p.numero_pedido}</span>
@@ -778,7 +780,7 @@ export default function CRMContato() {
                       <span className="font-semibold text-sm">
                         {currency(p.valor_bruto)}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}

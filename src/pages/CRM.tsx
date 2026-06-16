@@ -27,6 +27,18 @@ import { Plus, MessageSquare, Phone } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 
 type ColumnKey = "novo" | "em_atendimento" | "aguardando" | "resolvido";
 
@@ -59,10 +71,138 @@ const ORIGEM_CLASS: Record<string, string> = {
 const truncate = (s: string | null | undefined, n = 60) =>
   !s ? "" : s.length > n ? s.slice(0, n).trimEnd() + "…" : s;
 
+type Contato = {
+  id: string;
+  nome: string | null;
+  telefone: string | null;
+  origem: string | null;
+  status: string | null;
+  unread_count?: number | null;
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
+function ContactCard({
+  c,
+  onClick,
+}: {
+  c: Contato;
+  onClick: () => void;
+}) {
+  const unread = (c.unread_count ?? 0) > 0;
+  const lastDate = c.last_message_at ?? c.updated_at ?? c.created_at;
+  return (
+    <Card
+      onClick={onClick}
+      className={`p-3 cursor-pointer hover:shadow-md transition-all space-y-2 ${
+        unread
+          ? "border-green-500/60 bg-green-50 dark:bg-green-950/30 ring-1 ring-green-500/30"
+          : "hover:border-primary/40"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {unread && (
+            <span className="h-2 w-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
+          )}
+          <span className="font-medium text-sm truncate">
+            {c.nome || c.telefone}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {unread && (
+            <Badge className="text-[10px] h-5 px-1.5 bg-green-500 hover:bg-green-500 text-white border-0">
+              {c.unread_count}
+            </Badge>
+          )}
+          <Badge
+            variant="outline"
+            className={`text-[10px] ${
+              ORIGEM_CLASS[c.origem ?? "outro"] ?? ORIGEM_CLASS.outro
+            }`}
+          >
+            {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem}
+          </Badge>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Phone className="h-3 w-3" />
+        <span className="truncate">{c.telefone}</span>
+      </div>
+      {c.last_message_preview && (
+        <p
+          className={`text-xs line-clamp-2 leading-snug ${
+            unread ? "font-medium text-foreground" : "text-foreground/80"
+          }`}
+        >
+          {truncate(c.last_message_preview, 60)}
+        </p>
+      )}
+      <div className="text-[11px] text-muted-foreground">
+        {lastDate
+          ? formatDistanceToNow(new Date(lastDate), {
+              addSuffix: true,
+              locale: ptBR,
+            })
+          : "—"}
+      </div>
+    </Card>
+  );
+}
+
+function DraggableCard({
+  c,
+  onClick,
+}: {
+  c: Contato;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: c.id,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{ opacity: isDragging ? 0.4 : 1, touchAction: "none" }}
+    >
+      <ContactCard c={c} onClick={onClick} />
+    </div>
+  );
+}
+
+function DroppableColumn({
+  id,
+  isOver,
+  className,
+  children,
+}: {
+  id: string;
+  isOver?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver: over } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${className ?? ""} ${
+        over || isOver ? "ring-2 ring-primary/50 bg-primary/5" : ""
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function CRM() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [form, setForm] = useState({
     nome: "",
     telefone: "",
@@ -71,15 +211,15 @@ export default function CRM() {
     notas: "",
   });
 
-  const { data: contatos, isLoading } = useQuery({
+  const { data: contatos, isLoading } = useQuery<Contato[]>({
     queryKey: ["crm_contacts_kanban"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_contacts")
         .select("*")
-        .order("updated_at", { ascending: false });
+        .order("last_message_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as Contato[];
     },
   });
 
@@ -91,15 +231,7 @@ export default function CRM() {
         { event: "*", schema: "public", table: "crm_contacts" },
         () => {
           qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "crm_messages" },
-        () => {
-          qc.invalidateQueries({ queryKey: ["crm_last_messages"] });
-          qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
-        }
+        },
       )
       .subscribe();
     return () => {
@@ -107,23 +239,44 @@ export default function CRM() {
     };
   }, [qc]);
 
-  const { data: lastMessages } = useQuery({
-    queryKey: ["crm_last_messages"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("crm_messages")
-        .select("contact_id, conteudo, created_at")
-        .order("created_at", { ascending: false });
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 6 },
+    }),
+  );
+
+  const moveStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: ColumnKey }) => {
+      const { error } = await supabase
+        .from("crm_contacts")
+        .update({ status })
+        .eq("id", id);
       if (error) throw error;
-      const map = new Map<string, { conteudo: string; created_at: string }>();
-      (data ?? []).forEach((m) => {
-        if (!map.has(m.contact_id)) {
-          map.set(m.contact_id, { conteudo: m.conteudo, created_at: m.created_at });
-        }
-      });
-      return map;
     },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao mover"),
   });
+
+  function handleDragStart(e: DragStartEvent) {
+    setActiveId(String(e.active.id));
+  }
+  function handleDragEnd(e: DragEndEvent) {
+    setActiveId(null);
+    const overId = e.over?.id ? String(e.over.id) : null;
+    if (!overId) return;
+    const contact = (contatos ?? []).find((c) => c.id === String(e.active.id));
+    if (!contact) return;
+    const target = overId as ColumnKey;
+    if (!COLUMNS.some((c) => c.key === target)) return;
+    if ((contact.status ?? "novo") === target) return;
+    // optimistic
+    qc.setQueryData<Contato[]>(["crm_contacts_kanban"], (old) =>
+      (old ?? []).map((c) =>
+        c.id === contact.id ? { ...c, status: target } : c,
+      ),
+    );
+    moveStatus.mutate({ id: contact.id, status: target });
+  }
 
   const create = useMutation({
     mutationFn: async () => {
@@ -146,10 +299,19 @@ export default function CRM() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar contato"),
   });
 
-  const grouped = COLUMNS.reduce<Record<ColumnKey, typeof contatos>>((acc, col) => {
-    acc[col.key] = (contatos ?? []).filter((c) => (c.status ?? "novo") === col.key);
-    return acc;
-  }, { novo: [], em_atendimento: [], aguardando: [], resolvido: [] } as any);
+  const grouped = COLUMNS.reduce<Record<ColumnKey, Contato[]>>(
+    (acc, col) => {
+      acc[col.key] = (contatos ?? []).filter(
+        (c) => (c.status ?? "novo") === col.key,
+      );
+      return acc;
+    },
+    { novo: [], em_atendimento: [], aguardando: [], resolvido: [] },
+  );
+
+  const activeContact = activeId
+    ? (contatos ?? []).find((c) => c.id === activeId)
+    : null;
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -210,65 +372,59 @@ export default function CRM() {
         </Dialog>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-3 -mx-4 px-4 md:-mx-6 md:px-6">
-        {COLUMNS.map((col) => {
-          const items = grouped[col.key] ?? [];
-          return (
-            <div
-              key={col.key}
-              className={`shrink-0 w-[300px] md:w-[320px] rounded-lg border bg-muted/30 p-3 flex flex-col h-[calc(100vh-180px)] ${col.ring}`}
-            >
-              <div className="flex items-center justify-between mb-3 px-1">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
-                  <h2 className="font-semibold text-sm">{col.label}</h2>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
+        <div className="flex gap-4 overflow-x-auto pb-3 -mx-4 px-4 md:-mx-6 md:px-6">
+          {COLUMNS.map((col) => {
+            const items = grouped[col.key] ?? [];
+            return (
+              <DroppableColumn
+                key={col.key}
+                id={col.key}
+                className={`shrink-0 w-[300px] md:w-[320px] rounded-lg border bg-muted/30 p-3 flex flex-col h-[calc(100vh-180px)] transition-colors ${col.ring}`}
+              >
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
+                    <h2 className="font-semibold text-sm">{col.label}</h2>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {items.length}
+                  </Badge>
                 </div>
-                <Badge variant="secondary" className="text-xs">{items.length}</Badge>
-              </div>
-              <div className="space-y-2 flex-1 overflow-y-auto pr-1">
-                {isLoading ? (
-                  <div className="h-20 rounded-md bg-muted animate-pulse" />
-                ) : items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">Nenhum contato</p>
-                ) : (
-                  items.map((c) => {
-                    const last = lastMessages?.get(c.id);
-                    const lastDate = last?.created_at ?? c.updated_at ?? c.created_at;
-                    return (
-                      <Card
+                <div className="space-y-2 flex-1 overflow-y-auto pr-1">
+                  {isLoading ? (
+                    <div className="h-20 rounded-md bg-muted animate-pulse" />
+                  ) : items.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">
+                      Arraste aqui ou nenhum contato
+                    </p>
+                  ) : (
+                    items.map((c) => (
+                      <DraggableCard
                         key={c.id}
+                        c={c}
                         onClick={() => navigate(`/crm/${c.id}`)}
-                        className="p-3 cursor-pointer hover:shadow-md hover:border-primary/40 transition-all space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="font-medium text-sm truncate">{c.nome || c.telefone}</span>
-                          <Badge variant="outline" className={`text-[10px] shrink-0 ${ORIGEM_CLASS[c.origem ?? "outro"] ?? ORIGEM_CLASS.outro}`}>
-                            {ORIGEM_LABEL[c.origem ?? "outro"] ?? c.origem}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Phone className="h-3 w-3" />
-                          <span className="truncate">{c.telefone}</span>
-                        </div>
-                        {last?.conteudo && (
-                          <p className="text-xs text-foreground/80 line-clamp-2 leading-snug">
-                            {truncate(last.conteudo, 60)}
-                          </p>
-                        )}
-                        <div className="text-[11px] text-muted-foreground">
-                          {lastDate
-                            ? formatDistanceToNow(new Date(lastDate), { addSuffix: true, locale: ptBR })
-                            : "—"}
-                        </div>
-                      </Card>
-                    );
-                  })
-                )}
-              </div>
+                      />
+                    ))
+                  )}
+                </div>
+              </DroppableColumn>
+            );
+          })}
+        </div>
+        <DragOverlay>
+          {activeContact ? (
+            <div className="w-[300px] md:w-[320px] rotate-2 shadow-2xl">
+              <ContactCard c={activeContact} onClick={() => {}} />
             </div>
-          );
-        })}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }

@@ -122,12 +122,15 @@ export type Database = {
           direcao: string | null
           email: string | null
           id: string
+          last_message_at: string | null
+          last_message_preview: string | null
           nome: string
           notas: string | null
           origem: string | null
           status: string | null
           tags: string[] | null
           telefone: string
+          unread_count: number
           updated_at: string | null
         }
         Insert: {
@@ -135,12 +138,15 @@ export type Database = {
           direcao?: string | null
           email?: string | null
           id?: string
+          last_message_at?: string | null
+          last_message_preview?: string | null
           nome: string
           notas?: string | null
           origem?: string | null
           status?: string | null
           tags?: string[] | null
           telefone: string
+          unread_count?: number
           updated_at?: string | null
         }
         Update: {
@@ -148,12 +154,15 @@ export type Database = {
           direcao?: string | null
           email?: string | null
           id?: string
+          last_message_at?: string | null
+          last_message_preview?: string | null
           nome?: string
           notas?: string | null
           origem?: string | null
           status?: string | null
           tags?: string[] | null
           telefone?: string
+          unread_count?: number
           updated_at?: string | null
         }
         Relationships: []
@@ -164,6 +173,7 @@ export type Database = {
           conteudo: string
           created_at: string
           direcao: string
+          evolution_message_id: string | null
           id: string
         }
         Insert: {
@@ -171,6 +181,7 @@ export type Database = {
           conteudo: string
           created_at?: string
           direcao?: string
+          evolution_message_id?: string | null
           id?: string
         }
         Update: {
@@ -178,6 +189,7 @@ export type Database = {
           conteudo?: string
           created_at?: string
           direcao?: string
+          evolution_message_id?: string | null
           id?: string
         }
         Relationships: [

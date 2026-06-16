@@ -38,9 +38,11 @@ serve(async (req) => {
       "[mídia]";
 
     const nomeWhats = body.data?.pushName || msgData?.pushName || "";
-    const fromMe = body.data?.key?.fromMe || msgData?.key?.fromMe || false;
+    const fromMe = body.data?.key?.fromMe ?? msgData?.key?.fromMe ?? false;
+    const evolutionMessageId =
+      body.data?.key?.id || msgData?.key?.id || null;
 
-    if (!telefone || fromMe) {
+    if (!telefone) {
       return new Response("ok", { status: 200, headers: corsHeaders });
     }
 
@@ -64,11 +66,22 @@ serve(async (req) => {
       contato = novo;
     }
 
-    const { error: insertError } = await supabase.from("crm_messages").insert({
+    const direcao = fromMe ? "enviada" : "recebida";
+
+    // Upsert by evolution_message_id to avoid duplicates when CRM-sent messages
+    // come back through the webhook.
+    const payload: Record<string, unknown> = {
       contact_id: contato!.id,
       conteudo,
-      direcao: "recebida",
-    });
+      direcao,
+    };
+    if (evolutionMessageId) payload.evolution_message_id = evolutionMessageId;
+
+    const { error: insertError } = evolutionMessageId
+      ? await supabase
+          .from("crm_messages")
+          .upsert(payload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
+      : await supabase.from("crm_messages").insert(payload);
 
     if (insertError) {
       console.error("[webhook] insert error:", insertError);

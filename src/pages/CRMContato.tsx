@@ -27,6 +27,7 @@ import {
   Pencil,
   Check,
   X,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -151,6 +152,21 @@ export default function CRMContato() {
     fetchMessages();
   }, [contactId]);
 
+  // Mark as read whenever we open this conversation
+  useEffect(() => {
+    if (!contactId) return;
+    supabase
+      .from("crm_contacts")
+      .update({ unread_count: 0 })
+      .eq("id", contactId)
+      .then(({ error }) => {
+        if (error) console.error("Erro ao marcar como lido:", error);
+        else {
+          qc.invalidateQueries({ queryKey: ["crm_contacts_kanban"] });
+        }
+      });
+  }, [contactId, qc]);
+
   // Realtime subscription for new messages
   useEffect(() => {
     if (!contactId) return;
@@ -206,22 +222,65 @@ export default function CRMContato() {
     setDraft("");
 
     try {
-      const { error: fnError } = await supabase.functions.invoke(
+      const { data: sendResp, error: fnError } = await supabase.functions.invoke(
         "evolution-send-message",
         { body: { telefone: contato.telefone, mensagem: text, contact_id: contato.id } },
       );
       if (fnError) throw fnError;
 
-      const { error: insertError } = await supabase.from("crm_messages").insert({
+      const evolutionMessageId =
+        (sendResp as any)?.evolution_message_id ?? null;
+
+      const insertPayload = {
         contact_id: contato.id,
         conteudo: text,
         direcao: "enviada",
-      });
+        ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+      };
+
+      const { error: insertError } = evolutionMessageId
+        ? await supabase
+            .from("crm_messages")
+            .upsert(insertPayload, {
+              onConflict: "evolution_message_id",
+              ignoreDuplicates: true,
+            })
+        : await supabase.from("crm_messages").insert(insertPayload);
       if (insertError) throw insertError;
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao enviar mensagem");
     } finally {
       setSending(false);
+    }
+  };
+
+  const [importing, setImporting] = useState(false);
+  const handleImportHistory = async () => {
+    if (!contactId || importing) return;
+    setImporting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "evolution-import-history",
+        { body: { contact_id: contactId } },
+      );
+      if (error) throw error;
+      const imported = (data as any)?.imported ?? 0;
+      toast.success(
+        imported > 0
+          ? `${imported} mensagem(ns) importada(s)`
+          : "Nenhuma mensagem nova encontrada",
+      );
+      // Refetch
+      const { data: msgs } = await supabase
+        .from("crm_messages")
+        .select("*")
+        .eq("contact_id", contactId)
+        .order("created_at", { ascending: true });
+      setMessages(msgs ?? []);
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao importar histórico");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -425,9 +484,20 @@ export default function CRMContato() {
             <h2 className="font-semibold truncate">{displayName}</h2>
             <p className="text-xs text-muted-foreground">{contato.telefone}</p>
           </div>
-          <Badge variant="outline">
-            {STATUS_LABEL[contato.status ?? "novo"] ?? contato.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleImportHistory}
+              disabled={importing}
+            >
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              {importing ? "Importando..." : "Importar histórico"}
+            </Button>
+            <Badge variant="outline">
+              {STATUS_LABEL[contato.status ?? "novo"] ?? contato.status}
+            </Badge>
+          </div>
         </header>
 
         <div

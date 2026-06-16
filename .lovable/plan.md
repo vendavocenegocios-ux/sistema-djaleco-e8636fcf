@@ -1,112 +1,58 @@
-## Objetivo
+# Por que nada apareceu
 
-Transformar o /crm de uma lista simples em uma central de atendimento WhatsApp com:
-1. Captura das mensagens enviadas pelo seu próprio celular
-2. Destaque verde em contatos com mensagens não lidas
-3. Visualização em Kanban com arrastar-e-soltar (Novo → Em atendimento → Aguardando → Resolvido)
-4. Importação de histórico antigo via Evolution API
+Investiguei os logs e o banco. Há dois problemas distintos:
 
----
+## 1. Mensagem que você digitou não entrou (webhook quebrado)
 
-## 1. Banco de dados (migration)
+Log do `evolution-webhook`:
 
-**Tabela `crm_contacts`** — adicionar colunas:
-- `status` (text, default `'novo'`) — coluna do kanban: `novo | em_atendimento | aguardando | resolvido`
-- `unread_count` (int, default 0) — quantas mensagens não lidas
-- `last_message_at` (timestamptz) — para ordenar contatos por atividade
-- `last_message_preview` (text) — prévia da última mensagem (mostrada no card)
+```
+ERROR [webhook] insert error:
+  code: 42P10
+  message: there is no unique or exclusion constraint matching the ON CONFLICT specification
+```
 
-**Tabela `crm_messages`** — adicionar:
-- `evolution_message_id` (text, unique) — id da mensagem na Evolution, evita duplicação quando webhook devolve mensagem enviada pelo CRM
+A migration criou um índice único **parcial** (`WHERE evolution_message_id IS NOT NULL`). O Postgres exige que o `ON CONFLICT (evolution_message_id)` aponte para uma constraint/índice único *não parcial* (ou que o predicado seja inferível, o que o PostgREST não faz). Resultado: **toda mensagem nova falha ao salvar**, inclusive a que você enviou pelo celular.
 
-**Trigger** em `crm_messages` (AFTER INSERT): atualiza no contato `last_message_at`, `last_message_preview`, e incrementa `unread_count` apenas quando `direcao = 'recebida'` (mensagens enviadas não contam como não lidas).
+## 2. "Importar histórico" não trouxe nada
 
----
+A função executou sem erro (logs limpos) e respondeu — mas provavelmente o array `records` veio vazio. Possíveis causas:
 
-## 2. Webhook (`evolution-webhook`)
+- Formato de resposta da Evolution diferente do esperado (`messages.records` vs outro caminho).
+- `remoteJid` montado errado (telefone armazenado com/sem DDI, máscara, etc.).
+- Endpoint `/chat/findMessages/{instance}` pode exigir body diferente nesta versão da Evolution.
 
-Hoje grava tudo como `recebida`. Mudar para:
-- Ler `data.key.fromMe` do payload
-- `fromMe: true` → grava `direcao: 'enviada'` (resposta que você mandou pelo celular aparece no chat)
-- `fromMe: false` → grava `direcao: 'recebida'`
-- Salvar `evolution_message_id = data.key.id`
-- Usar **upsert** por `evolution_message_id` para evitar duplicar mensagens enviadas pelo CRM (que voltam pelo webhook)
+Hoje a função não loga nada disso, então estamos no escuro.
 
----
+# Plano
 
-## 3. Envio pelo CRM (`evolution-send-message`)
+## Passo 1 — Migration: corrigir a unicidade
+- Dropar o índice parcial `crm_messages_evolution_message_id_key`.
+- Criar uma constraint UNIQUE real em `crm_messages.evolution_message_id` (Postgres aceita múltiplos NULLs em UNIQUE, então mensagens manuais sem id continuam funcionando).
 
-- Capturar o `key.id` retornado pela Evolution e salvar em `evolution_message_id`
-- A inserção otimista local na UI continua, mas agora carregando esse id quando a Evolution responder
+Isto sozinho já resolve o problema 1: novas mensagens recebidas/enviadas voltam a aparecer no grid e na conversa.
 
----
+## Passo 2 — `evolution-import-history`: instrumentar e tolerar variações
+- Logar: URL chamada, status, `remoteJid` usado, primeiras chaves do JSON e quantidade de `records` encontrados.
+- Tentar mais caminhos no payload: `json.messages.records`, `json.records`, `json.data`, `json` (array direto).
+- Se vier vazio com `@s.whatsapp.net`, tentar fallback com `@c.us`.
+- Retornar no JSON de resposta `debug: { remoteJid, status, sample }` para o frontend mostrar no toast quando `imported = 0`.
 
-## 4. Importação de histórico (nova edge function)
+## Passo 3 — Frontend (`CRMContato.tsx`)
+- No clique de "Importar histórico", quando `imported = 0`, exibir toast com a info de debug (telefone usado, status da API) para facilitar diagnóstico.
 
-Criar `evolution-import-history`:
-- Recebe `contact_id`
-- Busca telefone do contato no banco
-- Chama `POST {EVOLUTION_API_URL}/chat/findMessages/{EVOLUTION_CRM_INSTANCE}` com filtro pelo número
-- Para cada mensagem: faz upsert em `crm_messages` por `evolution_message_id` (não duplica)
-- Retorna quantidade importada
+## Passo 4 — Validar
+- Reenviar uma mensagem pelo celular → deve aparecer no chat e o card ficar verde no `/crm`.
+- Clicar em "Importar histórico" → checar logs e ver o que a Evolution está devolvendo; ajustar parser se necessário.
 
-Botão "Importar histórico" no header do `/crm/:id`.
+# Detalhes técnicos
 
-Observação: a Evolution só retorna o que ainda está no cache da instância — mensagens muito antigas podem não voltar. Isso é uma limitação da API, não do código.
+Migration:
+```sql
+DROP INDEX IF EXISTS public.crm_messages_evolution_message_id_key;
+ALTER TABLE public.crm_messages
+  ADD CONSTRAINT crm_messages_evolution_message_id_key
+  UNIQUE (evolution_message_id);
+```
 
----
-
-## 5. UI — Lista de contatos (`/crm`)
-
-**Toggle no topo**: `Lista` | `Kanban`
-
-### Modo Lista (atual, refinado)
-- Cada item mostra: nome, prévia da última mensagem, horário relativo
-- Se `unread_count > 0`: fundo verde claro (`bg-green-50`), badge verde com o número, indicador bolinha verde
-- Ordenado por `last_message_at DESC`
-
-### Modo Kanban (novo)
-- 4 colunas: **Novo** | **Em atendimento** | **Aguardando** | **Resolvido**
-- Cada card = contato (nome, prévia, badge não lidas verde)
-- Drag-and-drop com `@dnd-kit/core` (já compatível, leve, funciona em mobile com `TouchSensor`) — soltar em outra coluna faz `UPDATE crm_contacts SET status = ...`
-- Realtime: subscription em `crm_contacts` para mover cards quando outro usuário arrastar ou quando chegar nova mensagem (vira coluna "Novo" se estava "Resolvido")
-
----
-
-## 6. Marcar como lido
-
-Ao abrir `/crm/:id`: `UPDATE crm_contacts SET unread_count = 0 WHERE id = :id`.
-Verde some automaticamente na lista/kanban via realtime.
-
----
-
-## 7. Resumo de arquivos
-
-**Migration nova**:
-- altera `crm_contacts` (4 colunas)
-- altera `crm_messages` (1 coluna + índice único)
-- cria trigger de agregação
-- habilita realtime em `crm_contacts`
-
-**Edge functions**:
-- `evolution-webhook/index.ts` — tratar fromMe + upsert por message_id
-- `evolution-send-message/index.ts` — salvar message_id retornado
-- `evolution-import-history/index.ts` — nova função
-
-**Frontend**:
-- `src/pages/CRM.tsx` — toggle Lista/Kanban, destaque verde, ordenação por última mensagem
-- novo `src/components/crm/KanbanBoard.tsx` — colunas + dnd-kit
-- novo `src/components/crm/ContactCard.tsx` — card reutilizado em lista e kanban
-- `src/pages/CRMContato.tsx` — botão "Importar histórico" + marcar como lido ao montar
-- `package.json` — adicionar `@dnd-kit/core` e `@dnd-kit/sortable`
-
----
-
-## Dúvida em aberto (responda antes de eu implementar)
-
-Quando você arrasta um card para **Resolvido** e depois chega mensagem nova do mesmo contato, o que acontece?
-- (a) Volta automaticamente para "Novo" (recomendado — você não perde o cliente)
-- (b) Fica em "Resolvido" mas pisca verde
-- (c) Fica em "Resolvido" silenciosamente
-
-Me diga qual prefere e eu parto pra implementação.
+Nada de schema novo além disso; o resto é código de edge function + um toast no frontend.

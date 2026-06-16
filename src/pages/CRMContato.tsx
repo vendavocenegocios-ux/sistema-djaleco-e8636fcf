@@ -778,7 +778,6 @@ export default function CRMContato() {
                         )}
                       </div>
                     )}
-                    )}
                     {mediaUrl && mediaType === "document" && (
                       <a
                         href={mediaUrl}
